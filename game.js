@@ -584,17 +584,16 @@ function handleClick(e){
         addLog(`⚠ Já existe uma base militar ${side==='allied'?'aliada':'inimiga'}!`,'ev');
         return;
       }
-      // Check enough space
-      let fits=true;
-      for(let dr=0;dr<MILBASE_SIZE&&fits;dr++) for(let dc=0;dc<MILBASE_SIZE&&fits;dc++){
-        if(!valid(col+dc,row+dr)||grid[row+dr][col+dc]===T.WATER) fits=false;
-      }
-      if(!fits){ addLog('⚠ Sem espaço suficiente para a base (28×28)!','ev'); return; }
-      placeMilbase(side, col, row);
-      playPlace();
-      return;
+    let fits=true;
+    for(let dr=0;dr<MILBASE_H&&fits;dr++) for(let dc=0;dc<MILBASE_W&&fits;dc++){
+      if(!valid(col+dc,row+dr)||grid[row+dr][col+dc]===T.WATER) fits=false;
     }
-    else if(type==='delete'){
+    if(!fits){ addLog('⚠ Sem espaço suficiente (18×16)!','ev'); return; }
+    placeMilbase(side, col, row);
+    playPlace();
+    return;
+  }
+  else if(type==='delete'){
       if(t!==T.BASE_A&&t!==T.BASE_E) grid[row][col]=landmask[row][col]?(col<COLS/2?T.CONTINENT_A:T.CONTINENT_E):T.WATER;
       const ui=units.findIndex(u=>Math.floor(u.col)===col&&Math.floor(u.row)===row);
       if(ui>=0) units.splice(ui,1);
@@ -609,10 +608,10 @@ function handleClick(e){
     const existing = milbases.find(b=>b.side===side);
     if(existing){ addLog(`⚠ Já existe uma base militar ${side==='allied'?'aliada':'inimiga'}!`,'ev'); return; }
     let fits=true;
-    for(let dr=0;dr<MILBASE_SIZE&&fits;dr++) for(let dc=0;dc<MILBASE_SIZE&&fits;dc++){
+    for(let dr=0;dr<MILBASE_H&&fits;dr++) for(let dc=0;dc<MILBASE_W&&fits;dc++){
       if(!valid(col+dc,row+dr)||grid[row+dr][col+dc]===T.WATER) fits=false;
     }
-    if(!fits){ addLog('⚠ Sem espaço suficiente (28×28)!','ev'); return; }
+    if(!fits){ addLog('⚠ Sem espaço suficiente (18×16)!','ev'); return; }
     placeMilbase(side,col,row); playPlace(); return;
   }
   const u=mkUnit(side,type,col,row);
@@ -1110,49 +1109,49 @@ function spawnDmg(x,y,d){
 // ===========================
 //  MILITARY BASE SPAWNER
 // ===========================
-const MILBASE_SIZE = 28; // 28x28 cells
+const MILBASE_W = 18;
+const MILBASE_H = 16;
+const MILBASE_SIZE = 18; // kept for compat
 // milbases: [{side, col, row, spawnTimer, spawnInterval, waveIndex}]
 let milbases = [];
 
 function placeMilbase(side, anchorCol, anchorRow){
   // Only 1 per side
   milbases = milbases.filter(b => b.side !== side);
-  // Draw the 28x28 base structure onto the grid
-  const c0=anchorCol, r0=anchorRow, S=MILBASE_SIZE;
-  for(let r=r0;r<r0+S;r++) for(let c=c0;c<c0+S;c++){
+  const c0=anchorCol, r0=anchorRow, W=MILBASE_W, H=MILBASE_H;
+  // Fill base terrain
+  for(let r=r0;r<r0+H;r++) for(let c=c0;c<c0+W;c++){
     if(!valid(c,r)) continue;
     grid[r][c]=T.MILBASE;
   }
   // Outer wall border
-  for(let c=c0;c<c0+S;c++){
-    if(valid(c,r0))   grid[r0][c]=T.WALL;
-    if(valid(c,r0+S-1)) grid[r0+S-1][c]=T.WALL;
+  for(let c=c0;c<c0+W;c++){
+    if(valid(c,r0))     grid[r0][c]=T.WALL;
+    if(valid(c,r0+H-1)) grid[r0+H-1][c]=T.WALL;
   }
-  for(let r=r0;r<r0+S;r++){
-    if(valid(c0,r))   grid[r][c0]=T.WALL;
-    if(valid(c0+S-1,r)) grid[r][c0+S-1]=T.WALL;
+  for(let r=r0;r<r0+H;r++){
+    if(valid(c0,r))     grid[r][c0]=T.WALL;
+    if(valid(c0+W-1,r)) grid[r][c0+W-1]=T.WALL;
   }
-  // Inner structures — command post center
-  const cx=Math.floor(c0+S/2), cy=Math.floor(r0+S/2);
-  for(let dr=-2;dr<=2;dr++) for(let dc=-2;dc<=2;dc++){
+  // Command post center (3x3 wall with milbase inside)
+  const cx=Math.floor(c0+W/2), cy=Math.floor(r0+H/2);
+  for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
     if(!valid(cx+dc,cy+dr)) continue;
-    grid[cy+dr][cx+dc] = (Math.abs(dr)===2||Math.abs(dc)===2) ? T.WALL : T.MILBASE;
+    grid[cy+dr][cx+dc] = (Math.abs(dr)===1||Math.abs(dc)===1) ? T.WALL : T.MILBASE;
   }
   // Trenches along front side
-  const frontC = side==='allied' ? c0+S-3 : c0+2;
-  for(let r=r0+3;r<r0+S-3;r+=2) if(valid(frontC,r)) grid[r][frontC]=T.TRENCH;
+  const frontC = side==='allied' ? c0+W-3 : c0+2;
+  for(let r=r0+2;r<r0+H-2;r+=2) if(valid(frontC,r)) grid[r][frontC]=T.TRENCH;
   // Corner watchtowers
-  [[c0+1,r0+1],[c0+S-2,r0+1],[c0+1,r0+S-2],[c0+S-2,r0+S-2]].forEach(([c,r])=>{ if(valid(c,r)) grid[r][c]=T.HOLE; });
-  // Some trees inside
-  [[cx-4,cy-4],[cx+4,cy-4],[cx-4,cy+4],[cx+4,cy+4]].forEach(([c,r])=>{ if(valid(c,r)&&grid[r][c]===T.MILBASE) grid[r][c]=T.TREE; });
+  [[c0+1,r0+1],[c0+W-2,r0+1],[c0+1,r0+H-2],[c0+W-2,r0+H-2]].forEach(([c,r])=>{ if(valid(c,r)) grid[r][c]=T.HOLE; });
 
   milbases.push({
     side, col:anchorCol, row:anchorRow,
-    spawnTimer: 15,      // first spawn after 15s
-    spawnInterval: 25,   // then every 25s
+    spawnTimer: 15,
+    spawnInterval: 25,
     waveIndex: 0,
-    spawnX: side==='allied' ? anchorCol+S-2 : anchorCol+1,
-    spawnY: Math.floor(anchorRow+S/2),
+    spawnX: side==='allied' ? anchorCol+W-2 : anchorCol+1,
+    spawnY: Math.floor(anchorRow+H/2),
   });
   addLog(`🏛 Base Militar ${side==='allied'?'aliada':'inimiga'} construída em (${anchorCol},${anchorRow})`, side==='allied'?'al':'en');
 }
@@ -1202,12 +1201,12 @@ function drawMilbaseOverlays(){
   if(!milbases.length) return;
   const ti=TILE*zoom;
   milbases.forEach(base=>{
-    const S=MILBASE_SIZE;
+    const W=MILBASE_W, H=MILBASE_H;
     const x=base.col*ti+ox, y=base.row*ti+oy;
     // Glowing border
     C.strokeStyle=base.side==='allied'?'rgba(76,175,80,.5)':'rgba(244,67,54,.5)';
     C.lineWidth=2; C.setLineDash([5,4]);
-    C.strokeRect(x,y,S*ti,S*ti);
+    C.strokeRect(x,y,W*ti,H*ti);
     C.setLineDash([]);
     // Spawn point indicator
     const sx=base.spawnX*ti+ox, sy=base.spawnY*ti+oy;
@@ -1229,7 +1228,7 @@ function drawMilbaseOverlays(){
     C.font=`bold ${Math.max(7,9*zoom)}px Oswald`;
     C.fillStyle='rgba(200,168,75,.9)';
     C.textAlign='center';
-    C.fillText('BASE MILITAR', x+S*ti/2, y-6*zoom);
+    C.fillText('BASE MILITAR', x+W*ti/2, y-6*zoom);
   });
 }
 
