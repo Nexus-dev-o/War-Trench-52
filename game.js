@@ -475,7 +475,7 @@ function initGrid(){
   }
 }
 
-function resetUnits(){ units=[]; bullets=[]; particles=[]; effects=[]; }
+function resetUnits(){ units=[]; bullets=[]; particles=[]; effects=[]; milbases=[]; }
 
 // ===========================
 //  TOOL SELECTION
@@ -577,7 +577,23 @@ function handleClick(e){
     else if(type==='wall') grid[row][col]=T.WALL;
     else if(type==='tree') grid[row][col]=T.TREE;
     else if(type==='water') grid[row][col]=T.WATER;
-    else if(type==='milbase') grid[row][col]=T.MILBASE;
+    else if(type==='milbase'){
+      // 1 per side limit
+      const existingSide = milbases.find(b=>b.side===side);
+      if(existingSide){
+        addLog(`⚠ Já existe uma base militar ${side==='allied'?'aliada':'inimiga'}!`,'ev');
+        return;
+      }
+      // Check enough space
+      let fits=true;
+      for(let dr=0;dr<MILBASE_SIZE&&fits;dr++) for(let dc=0;dc<MILBASE_SIZE&&fits;dc++){
+        if(!valid(col+dc,row+dr)||grid[row+dr][col+dc]===T.WATER) fits=false;
+      }
+      if(!fits){ addLog('⚠ Sem espaço suficiente para a base (28×28)!','ev'); return; }
+      placeMilbase(side, col, row);
+      playPlace();
+      return;
+    }
     else if(type==='delete'){
       if(t!==T.BASE_A&&t!==T.BASE_E) grid[row][col]=landmask[row][col]?(col<COLS/2?T.CONTINENT_A:T.CONTINENT_E):T.WATER;
       const ui=units.findIndex(u=>Math.floor(u.col)===col&&Math.floor(u.row)===row);
@@ -588,6 +604,17 @@ function handleClick(e){
   }
   if(unitAt(col,row)) return;
   if(grid[row][col]===T.WATER) return;
+  // Milbase placed via side tool (allied/enemy)
+  if(type==='milbase'){
+    const existing = milbases.find(b=>b.side===side);
+    if(existing){ addLog(`⚠ Já existe uma base militar ${side==='allied'?'aliada':'inimiga'}!`,'ev'); return; }
+    let fits=true;
+    for(let dr=0;dr<MILBASE_SIZE&&fits;dr++) for(let dc=0;dc<MILBASE_SIZE&&fits;dc++){
+      if(!valid(col+dc,row+dr)||grid[row+dr][col+dc]===T.WATER) fits=false;
+    }
+    if(!fits){ addLog('⚠ Sem espaço suficiente (28×28)!','ev'); return; }
+    placeMilbase(side,col,row); playPlace(); return;
+  }
   const u=mkUnit(side,type,col,row);
   if(u){ units.push(u); playPlace(); addLog(`${side==='allied'?'🟢':'🔴'} ${UDEFS[type].name} em (${col},${row})`,side==='allied'?'al':'en'); }
 }
@@ -1080,6 +1107,132 @@ function spawnDeathFX(x,y,side){
 function spawnDmg(x,y,d){
   effects.push({x,y,vy:-1.8,life:.9,text:'-'+d,alpha:1});
 }
+// ===========================
+//  MILITARY BASE SPAWNER
+// ===========================
+const MILBASE_SIZE = 28; // 28x28 cells
+// milbases: [{side, col, row, spawnTimer, spawnInterval, waveIndex}]
+let milbases = [];
+
+function placeMilbase(side, anchorCol, anchorRow){
+  // Only 1 per side
+  milbases = milbases.filter(b => b.side !== side);
+  // Draw the 28x28 base structure onto the grid
+  const c0=anchorCol, r0=anchorRow, S=MILBASE_SIZE;
+  for(let r=r0;r<r0+S;r++) for(let c=c0;c<c0+S;c++){
+    if(!valid(c,r)) continue;
+    grid[r][c]=T.MILBASE;
+  }
+  // Outer wall border
+  for(let c=c0;c<c0+S;c++){
+    if(valid(c,r0))   grid[r0][c]=T.WALL;
+    if(valid(c,r0+S-1)) grid[r0+S-1][c]=T.WALL;
+  }
+  for(let r=r0;r<r0+S;r++){
+    if(valid(c0,r))   grid[r][c0]=T.WALL;
+    if(valid(c0+S-1,r)) grid[r][c0+S-1]=T.WALL;
+  }
+  // Inner structures — command post center
+  const cx=Math.floor(c0+S/2), cy=Math.floor(r0+S/2);
+  for(let dr=-2;dr<=2;dr++) for(let dc=-2;dc<=2;dc++){
+    if(!valid(cx+dc,cy+dr)) continue;
+    grid[cy+dr][cx+dc] = (Math.abs(dr)===2||Math.abs(dc)===2) ? T.WALL : T.MILBASE;
+  }
+  // Trenches along front side
+  const frontC = side==='allied' ? c0+S-3 : c0+2;
+  for(let r=r0+3;r<r0+S-3;r+=2) if(valid(frontC,r)) grid[r][frontC]=T.TRENCH;
+  // Corner watchtowers
+  [[c0+1,r0+1],[c0+S-2,r0+1],[c0+1,r0+S-2],[c0+S-2,r0+S-2]].forEach(([c,r])=>{ if(valid(c,r)) grid[r][c]=T.HOLE; });
+  // Some trees inside
+  [[cx-4,cy-4],[cx+4,cy-4],[cx-4,cy+4],[cx+4,cy+4]].forEach(([c,r])=>{ if(valid(c,r)&&grid[r][c]===T.MILBASE) grid[r][c]=T.TREE; });
+
+  milbases.push({
+    side, col:anchorCol, row:anchorRow,
+    spawnTimer: 15,      // first spawn after 15s
+    spawnInterval: 25,   // then every 25s
+    waveIndex: 0,
+    spawnX: side==='allied' ? anchorCol+S-2 : anchorCol+1,
+    spawnY: Math.floor(anchorRow+S/2),
+  });
+  addLog(`🏛 Base Militar ${side==='allied'?'aliada':'inimiga'} construída em (${anchorCol},${anchorRow})`, side==='allied'?'al':'en');
+}
+
+// Spawn wave patterns for bases — cycles through these
+const BASE_WAVES = [
+  // Wave 1 — light patrol
+  [{type:'soldier',dc:0,dr:0},{type:'soldier',dc:0,dr:1},{type:'soldier',dc:0,dr:2},{type:'machine',dc:0,dr:3}],
+  // Wave 2 — assault squad
+  [{type:'fuzileiro',dc:0,dr:0},{type:'fuzileiro',dc:0,dr:1},{type:'soldier',dc:1,dr:0},{type:'soldier',dc:1,dr:1},{type:'medic',dc:1,dr:2}],
+  // Wave 3 — heavy push
+  [{type:'tank',dc:0,dr:1},{type:'soldier',dc:2,dr:0},{type:'soldier',dc:2,dr:1},{type:'soldier',dc:2,dr:2},{type:'sniper',dc:3,dr:0},{type:'commander',dc:3,dr:2}],
+  // Wave 4 — blitz
+  [{type:'jipe',dc:0,dr:1},{type:'fuzileiro',dc:2,dr:0},{type:'fuzileiro',dc:2,dr:1},{type:'fuzileiro',dc:2,dr:2},{type:'machine',dc:3,dr:0},{type:'machine',dc:3,dr:2},{type:'medic',dc:3,dr:1}],
+];
+
+function updateMilbases(dt){
+  if(phase!=='battle') return;
+  milbases.forEach(base=>{
+    base.spawnTimer -= dt * speed;
+    if(base.spawnTimer > 0) return;
+    base.spawnTimer = base.spawnInterval;
+    // Pick wave pattern
+    const wave = BASE_WAVES[base.waveIndex % BASE_WAVES.length];
+    base.waveIndex++;
+    let placed=0;
+    wave.forEach(u=>{
+      const c = base.spawnX + (base.side==='allied' ? u.dc : -u.dc);
+      const r = base.spawnY + u.dr - 1;
+      if(!valid(c,r)||grid[r][c]===T.WATER||unitAt(c,r)) return;
+      const unit = mkUnit(base.side, u.type, c, r);
+      if(unit){ units.push(unit); placed++; }
+    });
+    if(placed>0){
+      playPlace();
+      addLog(`🏛 Base ${base.side==='allied'?'aliada':'inimiga'} lançou esquadrão — ${placed} unidades!`, base.side==='allied'?'al':'en');
+      // Spawn flash particles
+      for(let i=0;i<8;i++){
+        const a=Math.random()*Math.PI*2;
+        particles.push({x:base.spawnX,y:base.spawnY,vx:Math.cos(a)*3,vy:Math.sin(a)*3,life:.5,maxLife:.5,color:base.side==='allied'?'#4CAF50':'#F44336',sz:.3});
+      }
+    }
+  });
+}
+
+function drawMilbaseOverlays(){
+  if(!milbases.length) return;
+  const ti=TILE*zoom;
+  milbases.forEach(base=>{
+    const S=MILBASE_SIZE;
+    const x=base.col*ti+ox, y=base.row*ti+oy;
+    // Glowing border
+    C.strokeStyle=base.side==='allied'?'rgba(76,175,80,.5)':'rgba(244,67,54,.5)';
+    C.lineWidth=2; C.setLineDash([5,4]);
+    C.strokeRect(x,y,S*ti,S*ti);
+    C.setLineDash([]);
+    // Spawn point indicator
+    const sx=base.spawnX*ti+ox, sy=base.spawnY*ti+oy;
+    C.strokeStyle=base.side==='allied'?'#4CAF50':'#F44336';
+    C.lineWidth=1.5;
+    C.beginPath(); C.arc(sx+ti/2,sy+ti/2,ti*.7,0,Math.PI*2); C.stroke();
+    // Spawn countdown arc
+    const total=base.spawnInterval, rem=base.spawnTimer;
+    const prog=1-(rem/total);
+    C.strokeStyle=base.side==='allied'?'rgba(76,175,80,.9)':'rgba(244,67,54,.9)';
+    C.lineWidth=2.5;
+    C.beginPath(); C.arc(sx+ti/2,sy+ti/2,ti*.7,-Math.PI/2,-Math.PI/2+prog*Math.PI*2); C.stroke();
+    // Timer text
+    C.fillStyle=base.side==='allied'?'#4CAF50':'#F44336';
+    C.font=`bold ${Math.max(8,ti*.65)}px Oswald`;
+    C.textAlign='center'; C.textBaseline='middle';
+    C.fillText(Math.ceil(rem)+'s', sx+ti/2, sy+ti/2);
+    // Label
+    C.font=`bold ${Math.max(7,9*zoom)}px Oswald`;
+    C.fillStyle='rgba(200,168,75,.9)';
+    C.textAlign='center';
+    C.fillText('BASE MILITAR', x+S*ti/2, y-6*zoom);
+  });
+}
+
 function updateParticles(dt){
   particles.forEach(p=>{p.x+=p.vx*speed*dt;p.y+=p.vy*speed*dt;p.life-=dt*speed;p.vx*=.9;p.vy*=.9;});
   particles=particles.filter(p=>p.life>0);
@@ -1399,6 +1552,7 @@ function render(){
   drawUnits();
   drawHoverCell();
   drawSquadPreview();
+  drawMilbaseOverlays();
   drawMinimap();
 }
 
@@ -1414,6 +1568,7 @@ function gameLoop(ts){
     document.getElementById('time-disp').textContent=Math.floor(gameTime)+'s';
     updateUnits(dt);
     updateBullets(dt);
+    updateMilbases(dt);
     updateParticles(dt);
     if(selectedUnit&&!selectedUnit.dead) showDetail(selectedUnit);
     if(phase==='battle'&&gameTime>8) checkWin();
