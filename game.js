@@ -853,7 +853,7 @@ function updateUnits(dt){
     if(u.type==='fuzileiro'){
       if(closestD<=u.range){
         u.angle=Math.atan2(closest.row-u.row,closest.col-u.col);
-        if(u.fireCd<=0){ u.fireCd=1/u.fr; hitUnit(closest,u.dmg*dmgMult,u.side); SOUNDS.fuzileiro(); }
+        if(u.fireCd<=0){ u.fireCd=1/u.fr; hitUnit(closest,u.dmg*dmgMult,u.side,u); SOUNDS.fuzileiro(); }
       } else {
         const dx=closest.col-u.col, dy=closest.row-u.row, len=Math.hypot(dx,dy)||1;
         u.angle=Math.atan2(dy,dx);
@@ -897,7 +897,7 @@ function updateUnits(dt){
             side:u.side, type:'jet',
             aoe:true, aoeR:5.5,
             dead:false, trail:[],
-            isMissile:false,
+            isMissile:false, shooter:u,
           });
           SOUNDS.jet();
         }
@@ -969,15 +969,39 @@ function updateUnits(dt){
 
     if(u.aiState==='attack'){
       u.angle=Math.atan2(closest.row-u.row,closest.col-u.col);
-      if(u.fireCd<=0){
-        u.fireCd=1/u.fr;
-        fireBullet(u,closest,dmgMult);
-        SOUNDS[u.type]&&SOUNDS[u.type]();
+
+      // Check line of sight — don't fire if wall/structure blocks
+      const canSee = hasLineOfSight(u.col, u.row, closest.col, closest.row);
+
+      if(u.fireCd<=0 && canSee){
+        // Ammo conservation — sometimes hold fire (more at long range)
+        const rangeFraction = closestD / u.range;
+        const holdChance = rangeFraction > 0.8 ? 0.25 : 0.05; // save ammo at long range
+        if(Math.random() > holdChance){
+          u.fireCd = 1/u.fr;
+          fireBullet(u,closest,dmgMult);
+          SOUNDS[u.type]&&SOUNDS[u.type]();
+        } else {
+          u.fireCd = 0.4; // short pause before trying again
+        }
+      } else if(!canSee){
+        // Blocked — try to reposition to get LOS
+        u.suppressTimer = 0;
+        if(!u.inTrench) seekCover(u, dt);
+        // Peek — move slightly sideways to find angle
+        const peekDir = u.flankDir||1;
+        moveUnit(u, 0, peekDir*0.6, dt*0.5);
       }
-      // Move into cover while firing
-      if(!u.inTrench) seekCover(u,dt*0.5);
-      // Inch forward if enemy is far end of range
-      if(closestD>u.range*0.7&&hasSupport) aiAdvancePath(u,dt*0.4);
+
+      // Teamwork: if allies already firing, support from cover instead of rushing
+      const alliesAttacking = units.filter(a=>a.side===u.side&&!a.dead&&a!==u&&a.aiState==='attack'&&Math.hypot(a.col-u.col,a.row-u.row)<8).length;
+      if(!u.inTrench && alliesAttacking < 2){
+        seekCover(u, dt*0.5); // go to cover while waiting for team
+      }
+      // Inch forward only with solid team support
+      if(closestD>u.range*0.7 && hasSupport && alliesAttacking>=2 && canSee){
+        aiAdvancePath(u, dt*0.35);
+      }
     } else if(u.aiState==='flank'){
       u.flankTimer-=dt;
       if(u.flankTimer<=0){ u.aiState='advance'; u.pathCache=null; }
@@ -1050,11 +1074,20 @@ function seekCover(u, dt){
 }
 
 function aiAdvance(u, dt){
-  const tCol = u.side==='allied'?COLS-2:2;
-  const tRow = ROWS/2 + (Math.sin(gameTime*0.25+u.id*0.7)*ROWS*0.18);
+  const tCol = u.side==='allied' ? COLS-2 : 2;
+  // Spread units across map height — each unit targets a slightly different row
+  const spread = (u.id % 8) / 8; // 0..1 based on unit id
+  const tRow = ROWS*0.15 + spread*(ROWS*0.7);
   const dx=tCol-u.col, dy=tRow-u.row, len=Math.hypot(dx,dy)||1;
   u.angle=Math.atan2(dy,dx);
-  moveUnit(u,dx/len,dy/len,dt);
+  // Avoid bunching — if too many allies nearby, shift path
+  const crowded = units.filter(a=>a.side===u.side&&!a.dead&&a!==u&&Math.hypot(a.col-u.col,a.row-u.row)<2).length;
+  if(crowded>1){
+    const sideStep = (u.id%2===0)?1:-1;
+    moveUnit(u, dx/len*0.5, sideStep*0.8, dt);
+  } else {
+    moveUnit(u, dx/len, dy/len, dt);
+  }
 }
 
 function aiAdvancePath(u, dt){
@@ -1137,19 +1170,51 @@ function moveUnit(u,dx,dy,dt){
   u.pathCache=null;
 }
 
+
+// ===========================
+//  LINE OF SIGHT
+// ===========================
+function hasLineOfSight(ax, ay, bx, by){
+  // Bresenham-style ray march — returns false if wall/tree/milbase blocks
+  const steps = Math.ceil(Math.hypot(bx-ax, by-ay) * 1.5);
+  for(let i=1; i<steps-1; i++){
+    const t = i/steps;
+    const cx = ax + (bx-ax)*t;
+    const cy = ay + (by-ay)*t;
+    const gc = Math.floor(cx), gr = Math.floor(cy);
+    if(!valid(gc,gr)) continue;
+    const tile = grid[gr][gc];
+    if(tile===T.WALL||tile===T.TREE||tile===T.MILBASE) return false;
+  }
+  return true;
+}
 // ===========================
 //  BULLETS
 // ===========================
 function fireBullet(shooter, target, dmgMult){
+  // Accuracy: sniper=90%, machine=60%, others=72%
+  const accuracy = shooter.type==='sniper'?0.9 : shooter.type==='machine'?0.6 : 0.72;
+  const hit = Math.random() < accuracy;
+  // Wind/spread offset on target position
+  const spread = shooter.type==='sniper' ? 0.3 : shooter.type==='machine' ? 1.8 : 1.0;
+  const windX = (Math.random()-0.5) * spread * 2;
+  const windY = (Math.random()-0.5) * spread * 2;
+  const tx = hit ? target.col + windX*0.3 : target.col + windX;
+  const ty = hit ? target.row + windY*0.3 : target.row + windY;
   bullets.push({
     x:shooter.col, y:shooter.row,
-    tx:target.col, ty:target.row,
-    target, spd:shooter.type==='sniper'?28:(shooter.type==='artillery'?9:20),
+    tx, ty,
+    target: hit ? target : null, // miss = no target ref, won't deal dmg
+    spd:shooter.type==='sniper'?28:(shooter.type==='artillery'?9:20),
     dmg:shooter.dmg*dmgMult,
     side:shooter.side, type:shooter.type,
     aoe:false, aoeR:0,
-    dead:false,
-    trail:[],
+    dead:false, trail:[],
+    shooter,
+    // wind drift — bullet curves slightly each frame
+    driftX:(Math.random()-0.5)*0.015,
+    driftY:(Math.random()-0.5)*0.015,
+    isHit: hit,
   });
 }
 
@@ -1163,6 +1228,7 @@ function fireMissile(shooter, target, dmgMult){
     aoe:true, aoeR:4,
     dead:false, trail:[],
     isMissile:true,
+    shooter,
   });
 }
 
@@ -1178,7 +1244,7 @@ function updateBullets(dt){
       if(b.aoe){
         units.filter(u=>u.side!==b.side&&!u.dead).forEach(u=>{
           const d=Math.hypot(u.col-b.tx,u.row-b.ty);
-          if(d<b.aoeR) hitUnit(u,b.dmg*(1-d/b.aoeR*.6),b.side);
+          if(d<b.aoeR) hitUnit(u,b.dmg*(1-d/b.aoeR*.6),b.side,b.shooter);
         });
         // Crater — only 1-tile hole at exact impact point
         {
@@ -1191,7 +1257,7 @@ function updateBullets(dt){
         spawnExpl(b.tx,b.ty);
         playExplosion();
       } else {
-        if(b.target&&!b.target.dead) hitUnit(b.target,b.dmg,b.side);
+        if(b.target&&!b.target.dead) hitUnit(b.target,b.dmg,b.side,b.shooter);
         spawnHit(b.tx,b.ty);
       }
     } else {
@@ -1208,25 +1274,30 @@ function updateBullets(dt){
           return; // stop bullet here
         }
       }
+      // Apply wind drift
+      b.tx += (b.driftX||0) * speed;
+      b.ty += (b.driftY||0) * speed;
       b.x=stepX; b.y=stepY;
     }
   });
   bullets=bullets.filter(b=>!b.dead);
 }
 
-function hitUnit(u,dmg,side){
-  const red=u.inTrench?.5:1;
-  const d=dmg*red;
-  u.hp-=d; u.flashT=.12;
-  spawnDmg(u.col,u.row,Math.ceil(d));
-  if(u.hp<=0){
-    u.dead=true; playDeath();
+function hitUnit(u, dmg, side, shooter){
+  const red = u.inTrench ? .5 : 1;
+  const d = dmg * red;
+  u.hp -= d; u.flashT = .12;
+  spawnDmg(u.col, u.row, Math.ceil(d));
+  if(u.hp <= 0){
+    u.dead = true; playDeath();
     if(side==='allied') alliedScore++; else enemyScore++;
-    document.getElementById('allied-score').textContent=alliedScore;
-    document.getElementById('enemy-score').textContent=enemyScore;
-    addLog(`💀 ${UDEFS[u.type].name} ${u.side==='allied'?'aliado':'inimigo'} morto`,u.side==='allied'?'en':'al');
-    spawnDeathFX(u.col,u.row,u.side);
-    if(selectedUnit?.id===u.id) clearDetail();
+    // Credit kill to the shooter unit
+    if(shooter && !shooter.dead) shooter.kills++;
+    document.getElementById('allied-score').textContent = alliedScore;
+    document.getElementById('enemy-score').textContent = enemyScore;
+    addLog(`💀 ${UDEFS[u.type].name} ${u.side==='allied'?'aliado':'inimigo'} morto`, u.side==='allied'?'en':'al');
+    spawnDeathFX(u.col, u.row, u.side);
+    if(selectedUnit?.id === u.id) clearDetail();
   }
 }
 
