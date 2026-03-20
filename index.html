@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GUERRA DE TRINCHEIRAS — 1952</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ==================== INTRO ==================== -->
+<div id="screen-intro">
+  <h1>GUERRA DE<br>TRINCHEIRAS</h1>
+  <p class="sub">— Frente Oriental · 1952 —</p>
+
+  <div class="setup-box">
+    <h3>⚙ CONFIGURAÇÃO DO CAMPO</h3>
+    <div class="setup-row">
+      <label>Tamanho do mapa</label>
+      <input type="range" id="sz-range" min="32" max="96" step="8" value="64" oninput="document.getElementById('sz-val').textContent=this.value+'×'+this.value">
+      <span class="setup-val" id="sz-val">64×64</span>
+    </div>
+
+    <h3 style="margin-top:4px;">🗺 MAPA PRÉ-DEFINIDO</h3>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;">
+      <button class="btn-intro" style="font-size:.75rem;padding:6px 10px;flex:1;" onclick="selectPreset('custom')">✏ Livre</button>
+      <button class="btn-intro" style="font-size:.75rem;padding:6px 10px;flex:1;background:rgba(40,60,30,.9);border:1px solid #4CAF50;" onclick="selectPreset('normandy')">🏖 Normandia</button>
+      <button class="btn-intro" style="font-size:.75rem;padding:6px 10px;flex:1;background:rgba(50,30,10,.9);border:1px solid #C8A84B;" onclick="selectPreset('stalingrad')">🏙 Stalingrado</button>
+      <button class="btn-intro" style="font-size:.75rem;padding:6px 10px;flex:1;background:rgba(10,30,50,.9);border:1px solid #2196F3;" onclick="selectPreset('pacific')">🌊 Pacífico</button>
+    </div>
+    <div id="preset-desc" style="font-size:.72rem;color:#8a7a50;min-height:18px;text-align:center;"></div>
+
+    <h3 style="margin-top:4px;">🌍 CONTINENTES</h3>
+    <div class="continent-fields">
+      <div class="cf-row">
+        <label>Continente 1</label>
+        <input type="text" id="cont1-name" value="Aliança do Norte" maxlength="20">
+        <input type="color" class="cf-color" id="cont1-color" value="#2E5F2E">
+      </div>
+      <div class="cf-row">
+        <label>Continente 2</label>
+        <input type="text" id="cont2-name" value="Império do Sul" maxlength="20">
+        <input type="color" class="cf-color" id="cont2-color" value="#7A1C1C">
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:10px;margin-top:4px;">
+    <button class="btn-intro" onclick="startGame()">▶ INICIAR CAMPANHA</button>
+    <button class="btn-intro btn-ghost" onclick="loadGame()">⟳ CARREGAR</button>
+  </div>
+</div>
+
+<!-- ==================== MAIN ==================== -->
+<div id="main">
+  <div id="topbar">
+    <h2>⚔ GUERRA</h2>
+    <button class="tb-btn active" id="btn-build" onclick="setPhase('build')">🔨 CONSTRUIR</button>
+    <button class="tb-btn" id="btn-battle" onclick="setPhase('battle')">⚔ BATALHA</button>
+    <button class="tb-btn" onclick="togglePause()" id="btn-pause">⏸ PAUSAR</button>
+    <div style="display:flex;gap:3px;align-items:center;">
+      <span style="font-size:.68rem;color:#6a5a30;">VEL:</span>
+      <button class="speed-btn active" onclick="setSpeed(1)" id="sp1">×1</button>
+      <button class="speed-btn" onclick="setSpeed(2)" id="sp2">×2</button>
+      <button class="speed-btn" onclick="setSpeed(3)" id="sp3">×3</button>
+    </div>
+    <button class="tb-btn" onclick="saveGame()">💾 SALVAR</button>
+    <button class="tb-btn" onclick="loadGame()">📂 CARREGAR</button>
+    <button class="tb-btn" onclick="confirmNew()">🔄 NOVA GUERRA</button>
+    <div id="info-strip">
+      <div><span style="font-size:.68rem;color:#6a5a30;" id="cont1-label">ALIADOS</span> <span class="info-val" id="allied-score" style="color:var(--al)">0</span></div>
+      <div><span style="font-size:.68rem;color:#6a5a30;" id="cont2-label">INIMIGOS</span> <span class="info-val" id="enemy-score" style="color:var(--en)">0</span></div>
+      <div><span style="font-size:.68rem;color:#6a5a30;">TEMPO</span> <span class="info-val" id="time-disp">0s</span></div>
+      <div id="phase-disp" style="font-family:'Oswald',sans-serif;font-size:.85rem;color:var(--acc);">🔨 CONSTRUÇÃO</div>
+    </div>
+  </div>
+
+  <div id="game-area">
+    <!-- LEFT PANEL -->
+    <div id="left-panel">
+      <div class="panel-title" id="p-allied-title">🟢 ALIADOS</div>
+      <button class="unit-btn al-btn" onclick="selTool('allied','soldier')" id="t-allied-soldier"><span class="ico">🪖</span><span class="nm">Soldado</span></button>
+      <button class="unit-btn al-btn" onclick="selTool('allied','sniper')" id="t-allied-sniper"><span class="ico">🎯</span><span class="nm">Sniper</span></button>
+      <button class="unit-btn al-btn" onclick="selTool('allied','machine')" id="t-allied-machine"><span class="ico">🔫</span><span class="nm">Metralhador</span></button>
+      <button class="unit-btn al-btn" onclick="selTool('allied','tank')" id="t-allied-tank"><span class="ico">🛡</span><span class="nm">Tanque</span></button>
+      <button class="unit-btn al-btn" onclick="selTool('allied','artillery')" id="t-allied-artillery"><span class="ico">💣</span><span class="nm">Artilheiro</span></button>
+      <button class="unit-btn al-btn" onclick="selTool('allied','commander')" id="t-allied-commander"><span class="ico">⭐</span><span class="nm">Comandante</span></button>
+      <button class="unit-btn al-btn" onclick="selTool('allied','medic')" id="t-allied-medic"><span class="ico">🏥</span><span class="nm">Médico</span></button>
+      <button class="unit-btn al-btn" onclick="selTool('allied','digger')" id="t-allied-digger"><span class="ico">⛏</span><span class="nm">Escavador</span></button>
+      <button class="unit-btn al-btn" onclick="selTool('allied','builder')" id="t-allied-builder"><span class="ico">🔨</span><span class="nm">Construtor</span></button>
+      <button class="unit-btn al-btn" onclick="selTool('allied','fuzileiro')" id="t-allied-fuzileiro"><span class="ico">🔪</span><span class="nm">Fuzileiro</span></button>
+      <button class="unit-btn al-btn" onclick="selTool('allied','observer')" id="t-allied-observer"><span class="ico">🔭</span><span class="nm">Observador</span></button>
+      <button class="unit-btn al-btn" onclick="selTool('allied','jipe')" id="t-allied-jipe"><span class="ico">🚗</span><span class="nm">Jipe</span></button>
+
+      <div class="panel-title" id="p-enemy-title">🔴 INIMIGOS</div>
+      <button class="unit-btn en-btn" onclick="selTool('enemy','soldier')" id="t-enemy-soldier"><span class="ico">💀</span><span class="nm">Soldado</span></button>
+      <button class="unit-btn en-btn" onclick="selTool('enemy','sniper')" id="t-enemy-sniper"><span class="ico">🎯</span><span class="nm">Sniper</span></button>
+      <button class="unit-btn en-btn" onclick="selTool('enemy','machine')" id="t-enemy-machine"><span class="ico">🔫</span><span class="nm">Metralhador</span></button>
+      <button class="unit-btn en-btn" onclick="selTool('enemy','tank')" id="t-enemy-tank"><span class="ico">🛡</span><span class="nm">Tanque</span></button>
+      <button class="unit-btn en-btn" onclick="selTool('enemy','artillery')" id="t-enemy-artillery"><span class="ico">💣</span><span class="nm">Artilheiro</span></button>
+      <button class="unit-btn en-btn" onclick="selTool('enemy','commander')" id="t-enemy-commander"><span class="ico">⭐</span><span class="nm">Comandante</span></button>
+      <button class="unit-btn en-btn" onclick="selTool('enemy','digger')" id="t-enemy-digger"><span class="ico">⛏</span><span class="nm">Escavador</span></button>
+      <button class="unit-btn en-btn" onclick="selTool('enemy','builder')" id="t-enemy-builder"><span class="ico">🔨</span><span class="nm">Construtor</span></button>
+      <button class="unit-btn en-btn" onclick="selTool('enemy','fuzileiro')" id="t-enemy-fuzileiro"><span class="ico">🔪</span><span class="nm">Fuzileiro</span></button>
+      <button class="unit-btn en-btn" onclick="selTool('enemy','observer')" id="t-enemy-observer"><span class="ico">🔭</span><span class="nm">Observador</span></button>
+      <button class="unit-btn en-btn" onclick="selTool('enemy','jipe')" id="t-enemy-jipe"><span class="ico">🚗</span><span class="nm">Jipe</span></button>
+
+      <div class="panel-title">🏗 TERRENO</div>
+      <button class="unit-btn te-btn" onclick="selTool('terrain','trench')" id="t-terrain-trench"><span class="ico">〰</span><span class="nm">Trincheira</span></button>
+      <button class="unit-btn te-btn" onclick="selTool('terrain','bridge')" id="t-terrain-bridge"><span class="ico">🌉</span><span class="nm">Ponte</span></button>
+      <button class="unit-btn te-btn" onclick="selTool('terrain','hole')" id="t-terrain-hole"><span class="ico">⭕</span><span class="nm">Buraco</span></button>
+      <button class="unit-btn te-btn" onclick="selTool('terrain','wall')" id="t-terrain-wall"><span class="ico">█</span><span class="nm">Barricada</span></button>
+      <button class="unit-btn te-btn" onclick="selTool('terrain','tree')" id="t-terrain-tree"><span class="ico">🌲</span><span class="nm">Floresta</span></button>
+      <button class="unit-btn te-btn" onclick="selTool('terrain','water')" id="t-terrain-water"><span class="ico">🌊</span><span class="nm">Rio</span></button>
+      <button class="unit-btn te-btn" onclick="selTool('terrain','delete')" id="t-terrain-delete"><span class="ico">✕</span><span class="nm">Apagar</span></button>
+    </div>
+
+    <!-- CANVAS -->
+    <div id="canvas-wrap">
+      <canvas id="gameCanvas"></canvas>
+      <div id="tooltip"></div>
+    </div>
+
+    <!-- RIGHT PANEL -->
+    <div id="right-panel">
+      <div class="panel-title">📋 UNIDADE</div>
+      <div id="unit-detail">
+        <h4>— Selecione —</h4>
+        <p style="font-size:.6rem;color:#5a4a2a;margin-top:4px;">Clique em uma unidade para ver detalhes.</p>
+      </div>
+      <div class="panel-title">📻 RÁDIO</div>
+      <div id="log-box"></div>
+    </div>
+  </div>
+
+  <!-- SQUAD BAR -->
+  <div id="squad-bar">
+    <div id="squad-toggle" onclick="toggleSquadBar()">▲ ESQUADRÕES</div>
+    <div id="squad-content">
+      <div class="squad-side" id="squad-allied-side">
+        <div class="squad-side-title" id="sq-allied-title">🟢 ALIADOS</div>
+        <div class="squad-row" id="squads-allied"></div>
+      </div>
+      <div class="squad-divider"></div>
+      <div class="squad-side" id="squad-enemy-side">
+        <div class="squad-side-title" id="sq-enemy-title">🔴 INIMIGOS</div>
+        <div class="squad-row" id="squads-enemy"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div id="modal">
+  <div id="modal-box">
+    <h2 id="modal-title">VITÓRIA!</h2>
+    <p id="modal-msg"></p>
+    <button class="tb-btn" onclick="confirmNew()">🔄 NOVA GUERRA</button>
+    <button class="tb-btn" onclick="document.getElementById('modal').classList.remove('open')" style="margin-left:8px;">✕ FECHAR</button>
+  </div>
+</div>
+
+<script src="game.js"></script>
+</body>
+</html>
