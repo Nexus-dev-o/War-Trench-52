@@ -683,6 +683,7 @@ function mkUnit(side,type,col,row){
     dmg:d.dmg, range:d.range, spd:d.spd, fr:d.fr,
     sz:d.sz||1,
     fireCd:Math.random()*1.5,
+    startDelay: Math.random()*4, // stagger so units don't all rush at once
     target:null, dead:false, kills:0,
     inTrench:false, flashT:0, angle:side==='allied'?0:Math.PI,
     digTimer:0, buildTimer:0,
@@ -746,6 +747,8 @@ function updateUnits(dt){
     u.flashT=Math.max(0,u.flashT-dt);
     u.fireCd=Math.max(0,u.fireCd-dt);
     u.suppressTimer=Math.max(0,u.suppressTimer-dt);
+    // Stagger start — wait before acting
+    if(u.startDelay>0){ u.startDelay-=dt; return; }
 
     const cr=Math.floor(u.row), cc=Math.floor(u.col);
     u.inTrench = valid(cc,cr)&&(grid[cr][cc]===T.TRENCH||grid[cr][cc]===T.HOLE);
@@ -869,18 +872,21 @@ function updateUnits(dt){
       return;
     }
 
-    // ---- Jet: flies fast across map, drops bomb on target area ----
+    // ---- Jet: flies along paths, respects terrain, circles target ----
     if(u.type==='jet'){
-      u.angle=Math.atan2(closest.row-u.row,closest.col-u.col);
-      // Jets ignore terrain — move fast in straight line
-      const dx=closest.col-u.col, dy=closest.row-u.row, len=Math.hypot(dx,dy)||1;
-      const s=u.spd*speed;
-      u.col=Math.max(0,Math.min(COLS-1,u.col+dx/len*s*dt));
-      u.row=Math.max(0,Math.min(ROWS-1,u.row+dy/len*s*dt));
+      // Jet uses a circling approach: flies toward target but arcs around
+      u.jetAngle = (u.jetAngle||0) + dt*0.8*speed; // orbit angle offset
+      const orbitR = 6;
+      const tx = closest.col + Math.cos(u.jetAngle)*orbitR;
+      const ty = closest.row + Math.sin(u.jetAngle)*orbitR;
+      const dx=tx-u.col, dy=ty-u.row, len=Math.hypot(dx,dy)||1;
+      u.angle=Math.atan2(dy,dx);
+      // Use normal moveUnit so it respects walls
+      moveUnit(u,dx/len,dy/len,dt);
+      // Drop bomb when close to target
       if(closestD<=u.range){
         if(u.fireCd<=0){
           u.fireCd=1/u.fr;
-          // Drop bomb — big AOE
           bullets.push({
             x:u.col, y:u.row,
             tx:closest.col, ty:closest.row,
@@ -893,9 +899,7 @@ function updateUnits(dt){
           SOUNDS.jet();
         }
       }
-      // Jets bounce off map edges
-      if(u.col<=0||u.col>=COLS-1){ u.col=Math.max(1,Math.min(COLS-2,u.col)); u.flankDir*=-1; }
-      if(u.row<=0||u.row>=ROWS-1){ u.row=Math.max(1,Math.min(ROWS-2,u.row)); }
+      doStuckCheck(u,dt);
       return;
     }
 
@@ -937,36 +941,72 @@ function updateUnits(dt){
 
     // ---- General units state machine ----
     const inRange = closestD<=u.range;
-    const nearbyAllies = units.filter(a=>a.side===u.side&&!a.dead&&a!==u&&Math.hypot(a.col-u.col,a.row-u.row)<5).length;
-    const nearbyEnemies = enemies.filter(e=>Math.hypot(e.col-u.col,e.row-u.row)<7).length;
+    const engageRange = u.range * 0.85; // engage a bit before max range
+    const nearbyAllies = units.filter(a=>a.side===u.side&&!a.dead&&a!==u&&Math.hypot(a.col-u.col,a.row-u.row)<6).length;
+    const nearbyEnemies = enemies.filter(e=>Math.hypot(e.col-u.col,e.row-u.row)<8).length;
     const hpPct = u.hp/u.maxHp;
+    const hasSupport = nearbyAllies>=2;
 
-    // State transitions
-    if(hpPct<0.22&&nearbyAllies<2){ u.aiState='retreat'; }
-    else if(inRange){ u.aiState='attack'; u.suppressTimer=1.5+Math.random(); }
-    else if(nearbyEnemies>nearbyAllies+2&&hpPct>0.45&&u.suppressTimer<=0){ u.aiState='flank'; u.flankTimer=1.8+Math.random()*1.5; }
-    else if(u.aiState==='attack'&&!inRange){ u.aiState='advance'; u.pathCache=null; }
-    else if(u.aiState==='retreat'&&hpPct>0.55){ u.aiState='advance'; u.pathCache=null; }
+    // Realistic state transitions
+    if(hpPct<0.2){ u.aiState='retreat'; } // badly wounded — always retreat
+    else if(hpPct<0.35&&!hasSupport){ u.aiState='retreat'; } // wounded and alone
+    else if(inRange&&u.aiState!=='retreat'){
+      u.aiState='attack';
+      u.suppressTimer=Math.random()*2+1;
+    } else if(nearbyEnemies>nearbyAllies+3&&hpPct>0.5&&u.suppressTimer<=0){
+      // Heavily outnumbered — flank
+      u.aiState='flank';
+      u.flankTimer=2+Math.random()*2;
+      u.flankDir = (Math.random()<0.5)?1:-1;
+    } else if(u.aiState==='attack'&&closestD>u.range*1.1){
+      // Enemy moved out of range — pursue or re-advance
+      u.aiState='advance'; u.pathCache=null;
+    } else if(u.aiState==='retreat'&&hpPct>0.6&&hasSupport){
+      u.aiState='advance'; u.pathCache=null;
+    }
 
     if(u.aiState==='attack'){
       u.angle=Math.atan2(closest.row-u.row,closest.col-u.col);
-      if(u.fireCd<=0){ u.fireCd=1/u.fr; fireBullet(u,closest,dmgMult); SOUNDS[u.type]&&SOUNDS[u.type](); }
-      // While attacking, inch toward cover
-      if(!u.inTrench&&u.suppressTimer>0) seekCover(u,dt);
+      if(u.fireCd<=0){
+        u.fireCd=1/u.fr;
+        fireBullet(u,closest,dmgMult);
+        SOUNDS[u.type]&&SOUNDS[u.type]();
+      }
+      // Move into cover while firing
+      if(!u.inTrench) seekCover(u,dt*0.5);
+      // Inch forward if enemy is far end of range
+      if(closestD>u.range*0.7&&hasSupport) aiAdvancePath(u,dt*0.4);
     } else if(u.aiState==='flank'){
       u.flankTimer-=dt;
       if(u.flankTimer<=0){ u.aiState='advance'; u.pathCache=null; }
+      // Move diagonally forward + sideways
       const fwd=u.side==='allied'?1:-1;
-      const dx=fwd*0.5+u.flankDir*0.85, dy=u.flankDir*0.4;
+      const dx=fwd*0.6+u.flankDir*0.8, dy=u.flankDir*0.6;
       const len=Math.hypot(dx,dy)||1;
       moveUnit(u,dx/len,dy/len,dt);
     } else if(u.aiState==='retreat'){
-      const dx=u.side==='allied'?-1:1;
-      moveUnit(u,dx,0,dt);
-      // Fire back while retreating
-      if(inRange&&u.fireCd<=0){ u.fireCd=1/u.fr; fireBullet(u,closest,dmgMult*.7); SOUNDS[u.type]&&SOUNDS[u.type](); }
+      // Retreat back toward own base diagonally
+      const backDx=u.side==='allied'?-1:1;
+      const backDy=(u.row>ROWS/2)?-0.3:0.3; // angle toward center
+      const len=Math.hypot(backDx,backDy);
+      moveUnit(u,backDx/len,backDy/len,dt);
+      // Fire back at pursuer while retreating
+      if(closestD<=u.range*1.2&&u.fireCd<=0){
+        u.fireCd=1/u.fr;
+        fireBullet(u,closest,dmgMult*0.75);
+        SOUNDS[u.type]&&SOUNDS[u.type]();
+      }
     } else {
-      aiAdvancePath(u,dt);
+      // advance — only rush if have support or commander nearby
+      const cmdNear=units.some(a=>a.side===u.side&&a.type==='commander'&&!a.dead&&Math.hypot(a.col-u.col,a.row-u.row)<10);
+      if(hasSupport||cmdNear||gameTime>30){
+        aiAdvancePath(u,dt);
+      } else {
+        // Wait for support — hold position near spawn area
+        const holdC=u.side==='allied'?Math.min(u.col+0.5,10):Math.max(u.col-0.5,COLS-10);
+        const dx=holdC-u.col, dy=ROWS/2-u.row, len=Math.hypot(dx,dy)||1;
+        moveUnit(u,dx/len,dy/len,dt*0.3);
+      }
     }
 
     // Stuck detection
@@ -1138,18 +1178,12 @@ function updateBullets(dt){
           const d=Math.hypot(u.col-b.tx,u.row-b.ty);
           if(d<b.aoeR) hitUnit(u,b.dmg*(1-d/b.aoeR*.6),b.side);
         });
-        // Crater — convert tiles in radius to HOLE
-        const cr=Math.ceil(b.aoeR);
-        for(let dr=-cr;dr<=cr;dr++){
-          for(let dc=-cr;dc<=cr;dc++){
-            if(Math.hypot(dc,dr)>b.aoeR) continue;
-            const tc2=Math.floor(b.tx)+dc, tr2=Math.floor(b.ty)+dr;
-            if(!valid(tc2,tr2)) continue;
+        // Crater — only 1-tile hole at exact impact point
+        {
+          const tc2=Math.floor(b.tx), tr2=Math.floor(b.ty);
+          if(valid(tc2,tr2)){
             const tt=grid[tr2][tc2];
-            // Don't destroy bases or water
-            if(tt===T.BASE_A||tt===T.BASE_E||tt===T.WATER) continue;
-            // Walls and milbase become holes too
-            grid[tr2][tc2]=T.HOLE;
+            if(tt!==T.BASE_A&&tt!==T.BASE_E&&tt!==T.WATER) grid[tr2][tc2]=T.HOLE;
           }
         }
         spawnExpl(b.tx,b.ty);
