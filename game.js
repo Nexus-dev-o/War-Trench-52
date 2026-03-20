@@ -191,6 +191,7 @@ const PRESET_DESCS = {
   normandy: 'Praia longa + falésias — emboscadas e trincheiras costeiras',
   stalingrad: 'Cidade destruída — ruas e edifícios bloqueando passagens',
   pacific: 'Ilhas separadas por mar — pontes estreitas de combate',
+  milbase: 'Base Militar 32×32 — estrutura real com muros, trincheiras e zona neutra',
 };
 
 function selectPreset(name){
@@ -352,6 +353,80 @@ function placeBases(){
 
 // ===========================
 //  MAP GENERATION
+function buildPresetMilbase(){
+  // 32x32 map — symmetric military base, two sides
+  COLS=32; ROWS=32;
+  landmask=[];
+  for(let r=0;r<ROWS;r++){ landmask[r]=[]; for(let c=0;c<COLS;c++) landmask[r][c]=true; }
+  grid=[];
+  for(let r=0;r<ROWS;r++){
+    grid[r]=[];
+    for(let c=0;c<COLS;c++){
+      grid[r][c] = c < COLS/2 ? T.CONTINENT_A : T.CONTINENT_E;
+    }
+  }
+
+  function setRect(c0,r0,w,h,t){ for(let r=r0;r<r0+h;r++) for(let c=c0;c<c0+w;c++) if(valid(c,r)) grid[r][c]=t; }
+  function setWallBorder(c0,r0,w,h){
+    for(let c=c0;c<c0+w;c++){ if(valid(c,r0)) grid[r0][c]=T.WALL; if(valid(c,r0+h-1)) grid[r0+h-1][c]=T.WALL; }
+    for(let r=r0;r<r0+h;r++){ if(valid(c0,r)) grid[r][c0]=T.WALL; if(valid(c0+w-1,r)) grid[r][c0+w-1]=T.WALL; }
+  }
+
+  // === ALLIED BASE (left side, cols 0-14) ===
+  // Outer perimeter wall
+  setWallBorder(0,0,15,32);
+  // Inner base platform
+  setRect(1,1,13,30, T.MILBASE);
+  // Main command building (center-left)
+  setRect(3,12,5,8, T.WALL);
+  setRect(4,13,3,6, T.MILBASE); // inside
+  // Barracks block top
+  setRect(3,2,4,4, T.WALL);
+  setRect(4,3,2,2, T.MILBASE);
+  // Barracks block bottom
+  setRect(3,26,4,4, T.WALL);
+  setRect(4,27,2,2, T.MILBASE);
+  // Trenches along front wall (col 12-13)
+  for(let r=4;r<28;r+=2) if(valid(12,r)) grid[r][12]=T.TRENCH;
+  for(let r=5;r<27;r+=2) if(valid(11,r)) grid[r][11]=T.TRENCH;
+  // Watchtower holes at corners
+  grid[1][1]=T.HOLE; grid[1][13]=T.HOLE;
+  grid[30][1]=T.HOLE; grid[30][13]=T.HOLE;
+  // Trees inside base
+  for(const [c,r] of [[2,7],[2,24],[6,5],[6,26],[9,8],[9,23]]){ if(valid(c,r)) grid[r][c]=T.TREE; }
+
+  // === ENEMY BASE (right side, cols 17-31) — mirror ===
+  setWallBorder(17,0,15,32);
+  setRect(18,1,13,30, T.MILBASE);
+  setRect(23,12,5,8, T.WALL);
+  setRect(24,13,3,6, T.MILBASE);
+  setRect(24,2,4,4, T.WALL);
+  setRect(25,3,2,2, T.MILBASE);
+  setRect(24,26,4,4, T.WALL);
+  setRect(25,27,2,2, T.MILBASE);
+  for(let r=4;r<28;r+=2) if(valid(19,r)) grid[r][19]=T.TRENCH;
+  for(let r=5;r<27;r+=2) if(valid(20,r)) grid[r][20]=T.TRENCH;
+  grid[1][18]=T.HOLE; grid[1][30]=T.HOLE;
+  grid[30][18]=T.HOLE; grid[30][30]=T.HOLE;
+  for(const [c,r] of [[29,7],[29,24],[25,5],[25,26],[22,8],[22,23]]){ if(valid(c,r)) grid[r][c]=T.TREE; }
+
+  // === NO MAN'S LAND (cols 15-16) — narrow contested zone ===
+  for(let r=0;r<ROWS;r++){
+    grid[r][15]=T.HOLE;
+    grid[r][16]=T.HOLE;
+  }
+  // A few walls in no man's land for cover
+  grid[8][15]=T.WALL;  grid[8][16]=T.WALL;
+  grid[15][15]=T.WALL; grid[16][16]=T.WALL;
+  grid[23][15]=T.WALL; grid[23][16]=T.WALL;
+
+  // === SPAWN BASES (actual base_a / base_e tiles) ===
+  for(let r=13;r<19;r++){
+    grid[r][1]=T.BASE_A; grid[r][2]=T.BASE_A;
+    grid[r][29]=T.BASE_E; grid[r][30]=T.BASE_E;
+  }
+}
+
 // ===========================
 function genLandmask(){
   landmask=[];
@@ -375,6 +450,7 @@ function initGrid(){
   if(currentPreset==='normandy'){ buildPresetNormandy(); return; }
   if(currentPreset==='stalingrad'){ buildPresetStalingrad(); return; }
   if(currentPreset==='pacific'){ buildPresetPacific(); return; }
+  if(currentPreset==='milbase'){ buildPresetMilbase(); return; }
 
   genLandmask();
   grid=[];
@@ -1436,10 +1512,8 @@ function loadGame(){
 }
 
 function confirmNew(){
-  // Use modal instead of confirm() which can be blocked in iframes
   const ok = window.confirm ? window.confirm('Nova guerra? A partida atual será perdida.') : true;
   if(ok) newWar();
-  else newWar(); // always proceed — user clicked the button intentionally
 }
 
 function newWar(){
@@ -1502,6 +1576,8 @@ function startGame(){
     COLS=64; ROWS=64;
   } else if(currentPreset==='pacific'){
     COLS=64; ROWS=64;
+  } else if(currentPreset==='milbase'){
+    COLS=32; ROWS=32;
   }
 
   showMain();
@@ -1641,6 +1717,58 @@ const LARGE_TROOPS = [
       {type:'medic',    dc:7,dr:3},{type:'medic',    dc:7,dr:7},
       {type:'artillery',dc:8,dr:0},{type:'artillery',dc:8,dr:7},
       {type:'observer', dc:8,dr:3},{type:'observer', dc:8,dr:5},
+    ]
+  },
+  // ---- DUAL COMMANDER TROOPS ----
+  {
+    id:'lt-allied-dual', name:'🟢 BRIGADA DUPLO COMANDO', side:'allied',
+    desc:'24 unidades — 2 Comandantes liderando frentes separadas',
+    units: [
+      // Comandante 1 — lidera frente norte (fila 0-3)
+      {type:'commander', dc:0, dr:1},
+      {type:'soldier',   dc:1, dr:0}, {type:'soldier',   dc:1, dr:1},
+      {type:'soldier',   dc:1, dr:2}, {type:'machine',   dc:1, dr:3},
+      {type:'sniper',    dc:2, dr:0}, {type:'medic',     dc:2, dr:3},
+      {type:'tank',      dc:3, dr:1},
+      // Separador
+      // Comandante 2 — lidera frente sul (fila 5-8)
+      {type:'commander', dc:0, dr:6},
+      {type:'soldier',   dc:1, dr:5}, {type:'soldier',   dc:1, dr:6},
+      {type:'soldier',   dc:1, dr:7}, {type:'machine',   dc:1, dr:8},
+      {type:'sniper',    dc:2, dr:5}, {type:'medic',     dc:2, dr:8},
+      {type:'tank',      dc:3, dr:6},
+      // Retaguarda compartilhada
+      {type:'artillery', dc:5, dr:1}, {type:'artillery', dc:5, dr:7},
+      {type:'observer',  dc:5, dr:4},
+      {type:'digger',    dc:4, dr:2}, {type:'digger',    dc:4, dr:6},
+      {type:'builder',   dc:4, dr:4},
+      {type:'jipe',      dc:6, dr:4},
+      {type:'fuzileiro', dc:0, dr:4},
+    ]
+  },
+  {
+    id:'lt-enemy-dual', name:'🔴 DIVISÃO DUPLO COMANDO', side:'enemy',
+    desc:'24 unidades — 2 Comandantes em pinça de ataque',
+    units: [
+      // Comandante 1 — pinça norte
+      {type:'commander', dc:0, dr:1},
+      {type:'soldier',   dc:1, dr:0}, {type:'soldier',   dc:1, dr:1},
+      {type:'soldier',   dc:1, dr:2}, {type:'machine',   dc:1, dr:3},
+      {type:'sniper',    dc:2, dr:0}, {type:'medic',     dc:2, dr:3},
+      {type:'tank',      dc:3, dr:1},
+      // Comandante 2 — pinça sul
+      {type:'commander', dc:0, dr:6},
+      {type:'soldier',   dc:1, dr:5}, {type:'soldier',   dc:1, dr:6},
+      {type:'soldier',   dc:1, dr:7}, {type:'machine',   dc:1, dr:8},
+      {type:'sniper',    dc:2, dr:5}, {type:'medic',     dc:2, dr:8},
+      {type:'tank',      dc:3, dr:6},
+      // Suporte pesado
+      {type:'artillery', dc:5, dr:1}, {type:'artillery', dc:5, dr:7},
+      {type:'observer',  dc:5, dr:4},
+      {type:'digger',    dc:4, dr:2}, {type:'digger',    dc:4, dr:6},
+      {type:'builder',   dc:4, dr:4},
+      {type:'jipe',      dc:6, dr:4},
+      {type:'fuzileiro', dc:0, dr:4},
     ]
   },
 ];
