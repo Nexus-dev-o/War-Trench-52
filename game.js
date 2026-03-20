@@ -128,26 +128,41 @@ const SOUNDS = {
   jipe:      playTank,
 };
 
+function playMissile(){
+  if(!AC) return;
+  const t=AC.currentTime;
+  // Rocket whoosh
+  const o=AC.createOscillator(),g=AC.createGain();
+  o.type='sawtooth'; o.frequency.setValueAtTime(400,t); o.frequency.exponentialRampToValueAtTime(80,t+.3);
+  g.gain.setValueAtTime(.15,t); g.gain.exponentialRampToValueAtTime(.001,t+.35);
+  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+.35);
+  // Boom after
+  const src=AC.createBufferSource(); src.buffer=noise(.6);
+  const filt=AC.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=600;
+  const g2=AC.createGain(); g2.gain.setValueAtTime(.5,t+.25); g2.gain.exponentialRampToValueAtTime(.001,t+.85);
+  src.connect(filt); filt.connect(g2); g2.connect(AC.destination); src.start(t+.25); src.stop(t+.85);
+}
+
 // ===========================
 //  GAME CONFIG
 // ===========================
 let COLS=64, ROWS=64;
 const TILE=12;
 
-const T = { GRASS:0, TRENCH:1, HOLE:2, WALL:3, BASE_A:4, BASE_E:5, TREE:6, WATER:7, CONTINENT_A:8, CONTINENT_E:9, BRIDGE:10 };
+const T = { GRASS:0, TRENCH:1, HOLE:2, WALL:3, BASE_A:4, BASE_E:5, TREE:6, WATER:7, CONTINENT_A:8, CONTINENT_E:9, BRIDGE:10, MILBASE:11 };
 
 const UDEFS = {
   soldier:   { name:'Soldado',    hp:70,  dmg:14, range:6,  spd:.85, fr:1.4,  ico:'🪖', sz:1, desc:'Infantaria básica' },
   sniper:    { name:'Sniper SVD', hp:45,  dmg:50, range:20, spd:.38, fr:.38,  ico:'🎯', sz:1, desc:'Longo alcance, dano alto' },
   machine:   { name:'Metralhador',hp:90,  dmg:9,  range:7,  spd:.45, fr:3.5,  ico:'🔫', sz:1, desc:'Alta cadência de fogo' },
-  tank:      { name:'Tanque',     hp:350, dmg:45, range:9,  spd:.28, fr:.55,  ico:'🛡', sz:2, desc:'Alta armadura e dano' },
+  tank:      { name:'Tanque',     hp:350, dmg:65, range:11, spd:.28, fr:.45,  ico:'🛡', sz:2, desc:'Dispara mísseis AOE — destrói grupos e paredes' },
   artillery: { name:'Artilheiro', hp:55,  dmg:80, range:15, spd:.18, fr:.22,  ico:'💣', sz:1, desc:'Dano em área massivo' },
-  commander: { name:'Comandante', hp:120, dmg:18, range:9,  spd:.6,  fr:.9,   ico:'⭐', sz:1, desc:'+25% dano aliados próximos' },
+  commander: { name:'Comandante', hp:120, dmg:18, range:9,  spd:.6,  fr:.9,   ico:'⭐', sz:1, desc:'+30% dano aliados próximos' },
   medic:     { name:'Médico',     hp:55,  dmg:4,  range:5,  spd:.7,  fr:.5,   ico:'🏥', sz:1, desc:'Cura tropas aliadas' },
   digger:    { name:'Escavador',  hp:60,  dmg:6,  range:3,  spd:.5,  fr:.3,   ico:'⛏', sz:1, desc:'Cava trincheiras automaticamente' },
   builder:   { name:'Construtor', hp:65,  dmg:5,  range:3,  spd:.45, fr:.25,  ico:'🔨', sz:1, desc:'Constrói pontes sobre água' },
-  fuzileiro: { name:'Fuzileiro',  hp:85,  dmg:38, range:2,  spd:1.3, fr:1.8,  ico:'🔪', sz:1, desc:'Corpo a corpo — dano enorme de perto, move rápido' },
-  observer:  { name:'Observador', hp:40,  dmg:0,  range:0,  spd:.55, fr:0,    ico:'🔭', sz:1, desc:'Revela inimigos num raio grande. Não ataca.' },
+  fuzileiro: { name:'Fuzileiro',  hp:85,  dmg:38, range:2,  spd:1.3, fr:1.8,  ico:'🔪', sz:1, desc:'Corpo a corpo — dano enorme de perto' },
+  observer:  { name:'Observador', hp:40,  dmg:0,  range:0,  spd:.55, fr:0,    ico:'🔭', sz:1, desc:'Revela inimigos num raio grande' },
   jipe:      { name:'Jipe',       hp:200, dmg:20, range:7,  spd:1.6, fr:.8,   ico:'🚗', sz:2, desc:'Veloz — carrega até 2 aliados próximos, move-os junto' },
 };
 
@@ -486,6 +501,7 @@ function handleClick(e){
     else if(type==='wall') grid[row][col]=T.WALL;
     else if(type==='tree') grid[row][col]=T.TREE;
     else if(type==='water') grid[row][col]=T.WATER;
+    else if(type==='milbase') grid[row][col]=T.MILBASE;
     else if(type==='delete'){
       if(t!==T.BASE_A&&t!==T.BASE_E) grid[row][col]=landmask[row][col]?(col<COLS/2?T.CONTINENT_A:T.CONTINENT_E):T.WATER;
       const ui=units.findIndex(u=>Math.floor(u.col)===col&&Math.floor(u.row)===row);
@@ -513,7 +529,7 @@ function updateTip(){
     const d=UDEFS[u.type];
     tip.innerHTML=`<b style="color:${u.side==='allied'?'#4CAF50':'#F44336'}">${d.ico} ${d.name}</b><br>❤ ${Math.ceil(u.hp)}/${u.maxHp} &nbsp; ⚔ ${u.dmg}<br>🎯 Range:${u.range} &nbsp; 🏆 Kills:${u.kills}<br>${u.inTrench?'🛡 Na trincheira':''}`;
   }else{
-    const names=['Grama','Trincheira','Buraco','Barricada','Base Aliada','Base Inimiga','Floresta','Rio',cont1Name,cont2Name,'Ponte'];
+    const names=['Grama','Trincheira','Buraco','Barricada','Base Aliada','Base Inimiga','Floresta','Rio',cont1Name,cont2Name,'Ponte','Base Militar'];
     tip.innerHTML=names[grid[row][col]]||'?';
   }
   tip.style.display='block';
@@ -732,11 +748,11 @@ function updateUnits(dt){
       return;
     }
 
-    // ---- Tank: smash walls, lead charge ----
+    // ---- Tank: fires missiles (AOE), smash walls ----
     if(u.type==='tank'){
       u.angle=Math.atan2(closest.row-u.row,closest.col-u.col);
       if(closestD<=u.range){
-        if(u.fireCd<=0){ u.fireCd=1/u.fr; fireBullet(u,closest,dmgMult); SOUNDS.tank(); }
+        if(u.fireCd<=0){ u.fireCd=1/u.fr; fireMissile(u,closest,dmgMult); playMissile(); }
         // Tanks destroy walls they walk into
         const fwd=u.side==='allied'?1:-1;
         const wc=Math.floor(u.col)+fwd, wr=Math.floor(u.row);
@@ -905,6 +921,19 @@ function fireBullet(shooter, target, dmgMult){
   });
 }
 
+function fireMissile(shooter, target, dmgMult){
+  // Tank missile: fast, AOE radius 4, leaves smoke trail
+  bullets.push({
+    x:shooter.col, y:shooter.row,
+    tx:target.col, ty:target.row,
+    target, spd:22, dmg:shooter.dmg*dmgMult,
+    side:shooter.side, type:'missile',
+    aoe:true, aoeR:4,
+    dead:false, trail:[],
+    isMissile:true,
+  });
+}
+
 function updateBullets(dt){
   bullets.forEach(b=>{
     if(b.dead) return;
@@ -1049,6 +1078,15 @@ function drawGrid(){
         C.fillStyle='rgba(0,0,0,.55)';
         C.beginPath(); C.ellipse(x+ti/2,y+ti/2,ti*.38,ti*.28,0,0,Math.PI*2); C.fill();
       }
+      if(t===T.MILBASE){
+        // Military base — dark platform with cross marking
+        C.fillStyle='rgba(80,70,40,.9)'; C.fillRect(x+1,y+1,ti-2,ti-2);
+        C.strokeStyle='rgba(200,168,75,.5)'; C.lineWidth=.8;
+        C.beginPath(); C.moveTo(x+ti*.5,y+ti*.15); C.lineTo(x+ti*.5,y+ti*.85); C.stroke();
+        C.beginPath(); C.moveTo(x+ti*.15,y+ti*.5); C.lineTo(x+ti*.85,y+ti*.5); C.stroke();
+        C.strokeStyle='rgba(200,168,75,.3)'; C.lineWidth=1;
+        C.strokeRect(x+1,y+1,ti-2,ti-2);
+      }
       // Base labels
       if(t===T.BASE_A){ C.fillStyle=`rgba(${hexToRgb(cont1Color).r},${hexToRgb(cont1Color).g},${hexToRgb(cont1Color).b},.6)`; C.fillRect(x,y,ti,ti); }
       if(t===T.BASE_E){ C.fillStyle=`rgba(${hexToRgb(cont2Color).r},${hexToRgb(cont2Color).g},${hexToRgb(cont2Color).b},.6)`; C.fillRect(x,y,ti,ti); }
@@ -1121,6 +1159,11 @@ function drawBullets(){
       C.beginPath(); C.moveTo(-8*zoom,0); C.lineTo(3*zoom,0); C.stroke();
     } else if(b.type==='machine'){
       C.fillStyle='#f8c060'; C.beginPath(); C.ellipse(0,0,2.5*zoom,1.5*zoom,0,0,Math.PI*2); C.fill();
+    } else if(b.isMissile){
+      // Missile — elongated with fire trail
+      C.fillStyle='#FF8C00'; C.beginPath(); C.ellipse(0,0,5*zoom,2*zoom,0,0,Math.PI*2); C.fill();
+      C.fillStyle='#FFD700'; C.beginPath(); C.ellipse(-4*zoom,0,3*zoom,1.2*zoom,0,0,Math.PI*2); C.fill();
+      C.fillStyle='#fff'; C.beginPath(); C.ellipse(3*zoom,0,2*zoom,.8*zoom,0,0,Math.PI*2); C.fill();
     } else {
       C.fillStyle=b.side==='allied'?'#90EE90':'#FF8888';
       C.beginPath(); C.ellipse(0,0,3*zoom,1.5*zoom,0,0,Math.PI*2); C.fill();
@@ -1541,17 +1584,66 @@ const SQUADS = {
     },
     {
       id:'en-support', name:'Artilharia Vermelha', side:'enemy',
-      desc:'Artilheiro + 2 Metralhadoras + Escavador + Construtor',
+      desc:'Artilheiro + 2 Metralhadoras + Médico + Construtor',
       units:[
         {type:'artillery', dc:0, dr:1},
         {type:'machine',   dc:1, dr:0},
         {type:'machine',   dc:1, dr:2},
-        {type:'digger',    dc:2, dr:1},
+        {type:'medic',     dc:2, dr:1},
         {type:'builder',   dc:2, dr:0},
       ]
     },
   ]
 };
+
+// ===========================
+//  LARGE TROOPS (8-32 units)
+// ===========================
+const LARGE_TROOPS = [
+  {
+    id:'lt-allied-rush', name:'🟢 TROPA RELÂMPAGO', side:'allied',
+    desc:'16 Fuzileiros em linha de choque',
+    units: Array.from({length:16}, (_,i)=>({ type:'fuzileiro', dc:Math.floor(i/4), dr:i%4 }))
+  },
+  {
+    id:'lt-allied-fortress', name:'🟢 FORTALEZA ALIADA', side:'allied',
+    desc:'32 unidades — Exército completo de invasão',
+    units: [
+      // Front: 8 fuzileiros
+      ...Array.from({length:8}, (_,i)=>({ type:'fuzileiro', dc:0, dr:i })),
+      // Mid: 4 tanks + 4 machine
+      ...Array.from({length:4}, (_,i)=>({ type:'tank',    dc:2, dr:i*2 })),
+      ...Array.from({length:4}, (_,i)=>({ type:'machine', dc:3, dr:i*2+1 })),
+      // Back: 4 snipers + 4 soldiers + 2 commanders + 2 medics + 2 artillery + 2 observers
+      ...Array.from({length:4}, (_,i)=>({ type:'sniper',    dc:5, dr:i*2 })),
+      ...Array.from({length:4}, (_,i)=>({ type:'soldier',   dc:5, dr:i*2+1 })),
+      {type:'commander',dc:7,dr:1},{type:'commander',dc:7,dr:5},
+      {type:'medic',    dc:7,dr:3},{type:'medic',    dc:7,dr:7},
+      {type:'artillery',dc:8,dr:0},{type:'artillery',dc:8,dr:7},
+      {type:'observer', dc:8,dr:3},{type:'observer', dc:8,dr:5},
+    ]
+  },
+  {
+    id:'lt-enemy-rush', name:'🔴 HORDA INIMIGA', side:'enemy',
+    desc:'16 Soldados em carga total',
+    units: Array.from({length:16}, (_,i)=>({ type:'soldier', dc:Math.floor(i/4), dr:i%4 }))
+  },
+  {
+    id:'lt-enemy-fortress', name:'🔴 EXÉRCITO DO SUL', side:'enemy',
+    desc:'32 unidades — Força de aniquilação total',
+    units: [
+      ...Array.from({length:8}, (_,i)=>({ type:'fuzileiro', dc:0, dr:i })),
+      ...Array.from({length:4}, (_,i)=>({ type:'tank',    dc:2, dr:i*2 })),
+      ...Array.from({length:4}, (_,i)=>({ type:'machine', dc:3, dr:i*2+1 })),
+      ...Array.from({length:4}, (_,i)=>({ type:'sniper',    dc:5, dr:i*2 })),
+      ...Array.from({length:4}, (_,i)=>({ type:'soldier',   dc:5, dr:i*2+1 })),
+      {type:'commander',dc:7,dr:1},{type:'commander',dc:7,dr:5},
+      {type:'medic',    dc:7,dr:3},{type:'medic',    dc:7,dr:7},
+      {type:'artillery',dc:8,dr:0},{type:'artillery',dc:8,dr:7},
+      {type:'observer', dc:8,dr:3},{type:'observer', dc:8,dr:5},
+    ]
+  },
+];
 
 let activeSquad = null;
 let squadBarOpen = true;
@@ -1567,6 +1659,7 @@ function buildSquadUI(){
     const el = document.getElementById(`squads-${side}`);
     if(!el) return;
     el.innerHTML = '';
+    // Regular squads
     SQUADS[side].forEach(sq=>{
       const card = document.createElement('div');
       card.className = `squad-card sq-${side}`;
@@ -1577,6 +1670,20 @@ function buildSquadUI(){
         <div class="sq-units">${icons}</div>
         <div class="sq-units">${sq.desc}</div>
         <div class="sq-hint">Clique → seleciona · clique no mapa → posiciona</div>`;
+      card.onclick = ()=>selectSquad(sq);
+      el.appendChild(card);
+    });
+    // Large troops
+    LARGE_TROOPS.filter(t=>t.side===side).forEach(sq=>{
+      const card = document.createElement('div');
+      card.className = `squad-card sq-${side}`;
+      card.id = `sq-card-${sq.id}`;
+      card.style.borderTop = '2px solid #C8A84B';
+      card.innerHTML = `
+        <div class="sq-name" style="color:#FFD700">${sq.name}</div>
+        <div class="sq-units" style="color:#C8A84B">${sq.units.length} unidades</div>
+        <div class="sq-units">${sq.desc}</div>
+        <div class="sq-hint">⚠ TROPA GRANDE — precisa de espaço!</div>`;
       card.onclick = ()=>selectSquad(sq);
       el.appendChild(card);
     });
