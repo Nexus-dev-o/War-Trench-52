@@ -118,7 +118,6 @@ const SOUNDS = {
   sniper:    playSniper,
   machine:   playMachine,
   tank:      playTank,
-  artillery: playExplosion,
   commander: playShot,
   medic:     ()=>{},
   digger:    playDig,
@@ -126,7 +125,39 @@ const SOUNDS = {
   fuzileiro: playShot,
   observer:  ()=>{},
   jipe:      playTank,
+  artillery: playFifty,
+  jet:       playJet,
 };
+
+function playFifty(){ // .50 cal — deep heavy crack
+  if(!AC) return;
+  for(let i=0;i<3;i++){
+    const t=AC.currentTime+i*0.14;
+    const src=AC.createBufferSource(); src.buffer=noise(.22);
+    const filt=AC.createBiquadFilter(); filt.type='bandpass'; filt.frequency.value=900; filt.Q.value=1.8;
+    const g=AC.createGain(); g.gain.setValueAtTime(.32,t); g.gain.exponentialRampToValueAtTime(.001,t+.22);
+    src.connect(filt); filt.connect(g); g.connect(AC.destination); src.start(t); src.stop(t+.22);
+    const o=AC.createOscillator(),g2=AC.createGain();
+    o.type='sawtooth'; o.frequency.setValueAtTime(140,t); o.frequency.exponentialRampToValueAtTime(28,t+.18);
+    g2.gain.setValueAtTime(.28,t); g2.gain.exponentialRampToValueAtTime(.001,t+.2);
+    o.connect(g2); g2.connect(AC.destination); o.start(t); o.stop(t+.2);
+  }
+}
+
+function playJet(){ // Jet engine roar + bomb drop
+  if(!AC) return;
+  const t=AC.currentTime;
+  // Engine whine swoosh
+  const o=AC.createOscillator(),g=AC.createGain();
+  o.type='sawtooth'; o.frequency.setValueAtTime(200,t); o.frequency.linearRampToValueAtTime(800,t+.15); o.frequency.exponentialRampToValueAtTime(60,t+.5);
+  g.gain.setValueAtTime(.0,t); g.gain.linearRampToValueAtTime(.3,t+.08); g.gain.exponentialRampToValueAtTime(.001,t+.55);
+  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+.55);
+  // Boom on impact
+  const src=AC.createBufferSource(); src.buffer=noise(.9);
+  const filt=AC.createBiquadFilter(); filt.type='lowpass'; filt.frequency.value=400;
+  const g2=AC.createGain(); g2.gain.setValueAtTime(.0,t+.4); g2.gain.linearRampToValueAtTime(.7,t+.45); g2.gain.exponentialRampToValueAtTime(.001,t+1.3);
+  src.connect(filt); filt.connect(g2); g2.connect(AC.destination); src.start(t+.4); src.stop(t+1.3);
+}
 
 function playMissile(){
   if(!AC) return;
@@ -155,8 +186,9 @@ const UDEFS = {
   soldier:   { name:'Soldado',    hp:70,  dmg:14, range:6,  spd:.85, fr:1.4,  ico:'🪖', sz:1, desc:'Infantaria básica' },
   sniper:    { name:'Sniper SVD', hp:45,  dmg:50, range:20, spd:.38, fr:.38,  ico:'🎯', sz:1, desc:'Longo alcance, dano alto' },
   machine:   { name:'Metralhador',hp:90,  dmg:9,  range:7,  spd:.45, fr:3.5,  ico:'🔫', sz:1, desc:'Alta cadência de fogo' },
-  tank:      { name:'Tanque',     hp:350, dmg:65, range:11, spd:.28, fr:.45,  ico:'🛡', sz:2, desc:'Dispara mísseis AOE — destrói grupos e paredes' },
-  artillery: { name:'Artilheiro', hp:55,  dmg:80, range:15, spd:.18, fr:.22,  ico:'💣', sz:1, desc:'Dano em área massivo' },
+  tank:      { name:'Tanque',     hp:350, dmg:65, range:11, spd:.28, fr:.18,  ico:'🛡', sz:2, desc:'Míssil AOE potente — recarga lenta' },
+  artillery: { name:'.50 Cal',    hp:70,  dmg:22, range:12, spd:.35, fr:2.8,  ico:'🔩', sz:1, desc:'Metralhadora pesada .50 — alta cadência, dano sustentado' },
+  jet:       { name:'Jato',        hp:120, dmg:95, range:28, spd:3.5, fr:.18,  ico:'✈️',  sz:2, desc:'Passa rápido pelo campo, lança bomba em área grande' },
   commander: { name:'Comandante', hp:120, dmg:18, range:9,  spd:.6,  fr:.9,   ico:'⭐', sz:1, desc:'+30% dano aliados próximos' },
   medic:     { name:'Médico',     hp:55,  dmg:4,  range:5,  spd:.7,  fr:.5,   ico:'🏥', sz:1, desc:'Cura tropas aliadas' },
   digger:    { name:'Escavador',  hp:60,  dmg:6,  range:3,  spd:.5,  fr:.3,   ico:'⛏', sz:1, desc:'Cava trincheiras automaticamente' },
@@ -588,7 +620,7 @@ function handleClick(e){
     for(let dr=0;dr<MILBASE_H&&fits;dr++) for(let dc=0;dc<MILBASE_W&&fits;dc++){
       if(!valid(col+dc,row+dr)||grid[row+dr][col+dc]===T.WATER) fits=false;
     }
-    if(!fits){ addLog('⚠ Sem espaço suficiente (18×16)!','ev'); return; }
+    if(!fits){ addLog('⚠ Sem espaço suficiente (9×10)!','ev'); return; }
     placeMilbase(side, col, row);
     playPlace();
     return;
@@ -611,7 +643,7 @@ function handleClick(e){
     for(let dr=0;dr<MILBASE_H&&fits;dr++) for(let dc=0;dc<MILBASE_W&&fits;dc++){
       if(!valid(col+dc,row+dr)||grid[row+dr][col+dc]===T.WATER) fits=false;
     }
-    if(!fits){ addLog('⚠ Sem espaço suficiente (18×16)!','ev'); return; }
+    if(!fits){ addLog('⚠ Sem espaço suficiente (9×10)!','ev'); return; }
     placeMilbase(side,col,row); playPlace(); return;
   }
   const u=mkUnit(side,type,col,row);
@@ -686,7 +718,7 @@ function bfsPath(fc, fr, tc, tr, side){
       if(visited.has(key(nc,nr))) continue;
       const t=grid[nr][nc];
       // impassable tiles
-      if(t===T.WALL||t===T.TREE) continue;
+      if(t===T.WALL||t===T.TREE||t===T.MILBASE) continue;
       if(t===T.WATER) continue; // water blocks unless bridge
       // bases: enemy can enter allied base (triggers win), skip enemy base for allied
       visited.add(key(nc,nr));
@@ -748,7 +780,7 @@ function updateUnits(dt){
       units.forEach(a=>{
         if(carried>=2) return;
         if(a.side!==u.side||a.dead||a===u) return;
-        if(a.type==='tank'||a.type==='jipe'||a.type==='artillery') return;
+        if(a.type==='tank'||a.type==='jipe'||a.type==='artillery'||a.type==='jet') return;
         const d=Math.hypot(a.col-u.col,a.row-u.row);
         if(d<2.5){
           // Snap passenger slightly behind jipe
@@ -827,15 +859,43 @@ function updateUnits(dt){
       return;
     }
 
-    // ---- Artillery: keep distance, bombard ----
+    // ---- .50 Cal: plant and suppress, seek cover, fire fast non-AOE bursts ----
     if(u.type==='artillery'){
-      if(closestD>u.range*.55&&closestD<=u.range){
+      if(closestD<=u.range){
+        if(!u.inTrench) seekCover(u,dt);
         u.angle=Math.atan2(closest.row-u.row,closest.col-u.col);
         if(u.fireCd<=0){ u.fireCd=1/u.fr; fireBullet(u,closest,dmgMult); SOUNDS.artillery(); }
-      } else if(closestD<u.range*.55){
-        const dx=u.col-closest.col, dy=u.row-closest.row, len=Math.hypot(dx,dy)||1;
-        moveUnit(u,dx/len,dy/len,dt);
-      } else { aiAdvance(u,dt); }
+      } else { aiAdvancePath(u,dt); }
+      return;
+    }
+
+    // ---- Jet: flies fast across map, drops bomb on target area ----
+    if(u.type==='jet'){
+      u.angle=Math.atan2(closest.row-u.row,closest.col-u.col);
+      // Jets ignore terrain — move fast in straight line
+      const dx=closest.col-u.col, dy=closest.row-u.row, len=Math.hypot(dx,dy)||1;
+      const s=u.spd*speed;
+      u.col=Math.max(0,Math.min(COLS-1,u.col+dx/len*s*dt));
+      u.row=Math.max(0,Math.min(ROWS-1,u.row+dy/len*s*dt));
+      if(closestD<=u.range){
+        if(u.fireCd<=0){
+          u.fireCd=1/u.fr;
+          // Drop bomb — big AOE
+          bullets.push({
+            x:u.col, y:u.row,
+            tx:closest.col, ty:closest.row,
+            target:closest, spd:30, dmg:u.dmg*dmgMult,
+            side:u.side, type:'jet',
+            aoe:true, aoeR:5.5,
+            dead:false, trail:[],
+            isMissile:false,
+          });
+          SOUNDS.jet();
+        }
+      }
+      // Jets bounce off map edges
+      if(u.col<=0||u.col>=COLS-1){ u.col=Math.max(1,Math.min(COLS-2,u.col)); u.flankDir*=-1; }
+      if(u.row<=0||u.row>=ROWS-1){ u.row=Math.max(1,Math.min(ROWS-2,u.row)); }
       return;
     }
 
@@ -987,24 +1047,52 @@ function aiAdvancePath(u, dt){
   }
 }
 
-function moveUnit(u,dx,dy,dt){
-  const s=u.spd*speed;
-  let nx=u.col+dx*s*dt, ny=u.row+dy*s*dt;
-  const nc=Math.floor(nx), nr=Math.floor(ny);
-  if(!valid(nc,nr)) return;
+function isBlocked(nc, nr, u){
+  if(!valid(nc,nr)) return true;
   const t=grid[nr][nc];
-  if(t===T.WALL){ 
-    // Tanks smash walls
-    if(u.type==='tank'){ grid[nr][nc]=u.side==='allied'?T.CONTINENT_A:T.CONTINENT_E; }
-    else return;
+  if(t===T.WATER) return true;
+  if(t===T.WALL||t===T.TREE||t===T.MILBASE){
+    if(u.type==='tank'&&t===T.WALL){ grid[nr][nc]=u.side==='allied'?T.CONTINENT_A:T.CONTINENT_E; return false; }
+    return true;
   }
-  if(t===T.TREE) return;
-  if(t===T.WATER) return; // bridges handled by builder; water = blocked
-  const spedMult=(t===T.BRIDGE)?0.65:(t===T.TRENCH||t===T.HOLE)?0.7:1;
-  if(t===T.BASE_A&&u.side!=='allied'){ endWar('enemy'); return; }
-  if(t===T.BASE_E&&u.side!=='enemy'){ endWar('allied'); return; }
-  u.col=Math.max(0,Math.min(COLS-1,u.col+dx*s*dt*spedMult));
-  u.row=Math.max(0,Math.min(ROWS-1,u.row+dy*s*dt*spedMult));
+  return false;
+}
+
+function moveUnit(u,dx,dy,dt){
+  if(u.type==='jet') return; // jets handle movement themselves
+  const s=u.spd*speed;
+  const mx=dx*s*dt, my=dy*s*dt;
+  let nx=u.col+mx, ny=u.row+my;
+  const nc=Math.floor(nx), nr=Math.floor(ny);
+
+  // Check base win condition first
+  const tc=grid[Math.floor(ny)]?.[Math.floor(nx)];
+  if(tc===T.BASE_A&&u.side!=='allied'){ endWar('enemy'); return; }
+  if(tc===T.BASE_E&&u.side!=='enemy'){ endWar('allied'); return; }
+
+  if(!isBlocked(nc,nr,u)){
+    // Full move
+    const spedMult=(tc===T.BRIDGE)?0.65:(tc===T.TRENCH||tc===T.HOLE)?0.7:1;
+    u.col=Math.max(0,Math.min(COLS-1,nx));
+    u.row=Math.max(0,Math.min(ROWS-1,ny));
+    return;
+  }
+  // Try sliding along X axis
+  const nxOnly=u.col+mx, ncX=Math.floor(nxOnly), nrX=Math.floor(u.row);
+  if(!isBlocked(ncX,nrX,u)){
+    u.col=Math.max(0,Math.min(COLS-1,nxOnly));
+    u.pathCache=null; // re-path around obstacle
+    return;
+  }
+  // Try sliding along Y axis
+  const nyOnly=u.row+my, ncY=Math.floor(u.col), nrY=Math.floor(nyOnly);
+  if(!isBlocked(ncY,nrY,u)){
+    u.row=Math.max(0,Math.min(ROWS-1,nyOnly));
+    u.pathCache=null;
+    return;
+  }
+  // Fully blocked — invalidate path so bot re-routes
+  u.pathCache=null;
 }
 
 // ===========================
@@ -1017,7 +1105,7 @@ function fireBullet(shooter, target, dmgMult){
     target, spd:shooter.type==='sniper'?28:(shooter.type==='artillery'?9:20),
     dmg:shooter.dmg*dmgMult,
     side:shooter.side, type:shooter.type,
-    aoe:shooter.type==='artillery', aoeR:3.2,
+    aoe:false, aoeR:0,
     dead:false,
     trail:[],
   });
@@ -1050,6 +1138,20 @@ function updateBullets(dt){
           const d=Math.hypot(u.col-b.tx,u.row-b.ty);
           if(d<b.aoeR) hitUnit(u,b.dmg*(1-d/b.aoeR*.6),b.side);
         });
+        // Crater — convert tiles in radius to HOLE
+        const cr=Math.ceil(b.aoeR);
+        for(let dr=-cr;dr<=cr;dr++){
+          for(let dc=-cr;dc<=cr;dc++){
+            if(Math.hypot(dc,dr)>b.aoeR) continue;
+            const tc2=Math.floor(b.tx)+dc, tr2=Math.floor(b.ty)+dr;
+            if(!valid(tc2,tr2)) continue;
+            const tt=grid[tr2][tc2];
+            // Don't destroy bases or water
+            if(tt===T.BASE_A||tt===T.BASE_E||tt===T.WATER) continue;
+            // Walls and milbase become holes too
+            grid[tr2][tc2]=T.HOLE;
+          }
+        }
         spawnExpl(b.tx,b.ty);
         playExplosion();
       } else {
@@ -1057,7 +1159,20 @@ function updateBullets(dt){
         spawnHit(b.tx,b.ty);
       }
     } else {
-      b.x+=dx/dist*mv; b.y+=dy/dist*mv;
+      // Check if bullet path crosses a wall/structure — stop it there
+      const stepX=b.x+dx/dist*mv, stepY=b.y+dy/dist*mv;
+      const sc=Math.floor(stepX), sr=Math.floor(stepY);
+      if(valid(sc,sr)){
+        const bt=grid[sr][sc];
+        if(bt===T.WALL||bt===T.MILBASE||bt===T.TREE){
+          b.dead=true;
+          spawnHit(stepX,stepY);
+          // Explosions also damage the wall tile
+          if(b.aoe) spawnExpl(stepX,stepY);
+          return; // stop bullet here
+        }
+      }
+      b.x=stepX; b.y=stepY;
     }
   });
   bullets=bullets.filter(b=>!b.dead);
@@ -1109,21 +1224,22 @@ function spawnDmg(x,y,d){
 // ===========================
 //  MILITARY BASE SPAWNER
 // ===========================
-const MILBASE_W = 18;
-const MILBASE_H = 16;
-const MILBASE_SIZE = 18; // kept for compat
+const MILBASE_W = 9;
+const MILBASE_H = 10;
+const MILBASE_SIZE = 9; // kept for compat
 // milbases: [{side, col, row, spawnTimer, spawnInterval, waveIndex}]
 let milbases = [];
 
 function placeMilbase(side, anchorCol, anchorRow){
-  // Only 1 per side
   milbases = milbases.filter(b => b.side !== side);
   const c0=anchorCol, r0=anchorRow, W=MILBASE_W, H=MILBASE_H;
-  // Fill base terrain
+
+  // Fill interior with milbase terrain
   for(let r=r0;r<r0+H;r++) for(let c=c0;c<c0+W;c++){
     if(!valid(c,r)) continue;
     grid[r][c]=T.MILBASE;
   }
+
   // Outer wall border
   for(let c=c0;c<c0+W;c++){
     if(valid(c,r0))     grid[r0][c]=T.WALL;
@@ -1133,25 +1249,47 @@ function placeMilbase(side, anchorCol, anchorRow){
     if(valid(c0,r))     grid[r][c0]=T.WALL;
     if(valid(c0+W-1,r)) grid[r][c0+W-1]=T.WALL;
   }
-  // Command post center (3x3 wall with milbase inside)
-  const cx=Math.floor(c0+W/2), cy=Math.floor(r0+H/2);
-  for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
-    if(!valid(cx+dc,cy+dr)) continue;
-    grid[cy+dr][cx+dc] = (Math.abs(dr)===1||Math.abs(dc)===1) ? T.WALL : T.MILBASE;
+
+  // ENTRANCE — opening in the front wall (facing the battlefield)
+  // Allied: entrance on right side (c0+W-1), Enemy: entrance on left side (c0)
+  const midR = r0 + Math.floor(H/2);
+  if(side==='allied'){
+    // Right wall entrance (2 cells tall at center)
+    if(valid(c0+W-1, midR-1)) grid[midR-1][c0+W-1]=T.MILBASE;
+    if(valid(c0+W-1, midR))   grid[midR][c0+W-1]=T.MILBASE;
+  } else {
+    // Left wall entrance
+    if(valid(c0, midR-1)) grid[midR-1][c0]=T.MILBASE;
+    if(valid(c0, midR))   grid[midR][c0]=T.MILBASE;
   }
-  // Trenches along front side
+
+  // Command post — small 2x2 block in back-center
+  const cmdC = side==='allied' ? c0+1 : c0+W-3;
+  const cmdR = r0+Math.floor(H/2)-1;
+  for(let dr=0;dr<2;dr++) for(let dc=0;dc<2;dc++){
+    if(valid(cmdC+dc, cmdR+dr)) grid[cmdR+dr][cmdC+dc]=T.WALL;
+  }
+  // Open center of command post
+  if(valid(cmdC, cmdR)) grid[cmdR][cmdC]=T.MILBASE;
+
+  // Trenches along front interior wall
   const frontC = side==='allied' ? c0+W-3 : c0+2;
-  for(let r=r0+2;r<r0+H-2;r+=2) if(valid(frontC,r)) grid[r][frontC]=T.TRENCH;
-  // Corner watchtowers
-  [[c0+1,r0+1],[c0+W-2,r0+1],[c0+1,r0+H-2],[c0+W-2,r0+H-2]].forEach(([c,r])=>{ if(valid(c,r)) grid[r][c]=T.HOLE; });
+  for(let r=r0+1;r<r0+H-1;r++) if(valid(frontC,r)) grid[r][frontC]=T.TRENCH;
+
+  // Corner watchtower holes
+  [[c0+1,r0+1],[c0+W-2,r0+1],[c0+1,r0+H-2],[c0+W-2,r0+H-2]]
+    .forEach(([c,r])=>{ if(valid(c,r)) grid[r][c]=T.HOLE; });
+
+  // Spawn point just outside the entrance
+  const spawnX = side==='allied' ? c0+W : c0-1;
+  const spawnY = midR;
 
   milbases.push({
     side, col:anchorCol, row:anchorRow,
     spawnTimer: 15,
     spawnInterval: 25,
     waveIndex: 0,
-    spawnX: side==='allied' ? anchorCol+W-2 : anchorCol+1,
-    spawnY: Math.floor(anchorRow+H/2),
+    spawnX, spawnY,
   });
   addLog(`🏛 Base Militar ${side==='allied'?'aliada':'inimiga'} construída em (${anchorCol},${anchorRow})`, side==='allied'?'al':'en');
 }
@@ -1387,6 +1525,10 @@ function drawBullets(){
       C.beginPath(); C.moveTo(-8*zoom,0); C.lineTo(3*zoom,0); C.stroke();
     } else if(b.type==='machine'){
       C.fillStyle='#f8c060'; C.beginPath(); C.ellipse(0,0,2.5*zoom,1.5*zoom,0,0,Math.PI*2); C.fill();
+    } else if(b.type==='jet'){
+      // Falling bomb — dark oval
+      C.fillStyle='#333'; C.beginPath(); C.ellipse(0,0,5*zoom,2.5*zoom,0,0,Math.PI*2); C.fill();
+      C.fillStyle='rgba(255,200,0,.6)'; C.beginPath(); C.ellipse(4*zoom,0,2*zoom,1*zoom,0,0,Math.PI*2); C.fill();
     } else if(b.isMissile){
       // Missile — elongated with fire trail
       C.fillStyle='#FF8C00'; C.beginPath(); C.ellipse(0,0,5*zoom,2*zoom,0,0,Math.PI*2); C.fill();
@@ -1472,6 +1614,32 @@ function drawUnits(){
       C.font=`bold ${Math.max(8,r*1.2)}px sans-serif`;
       C.textAlign='center'; C.textBaseline='bottom';
       C.fillText('!', x, y-r-2);
+    }
+
+    // Jet — draw as plane silhouette instead of circle
+    if(u.type==='jet'){
+      C.save();
+      C.translate(x,y); C.rotate(u.angle);
+      C.fillStyle=u.side==='allied'?'#4CAF50':'#F44336';
+      // Fuselage
+      C.beginPath(); C.ellipse(0,0,r*1.8,r*.45,0,0,Math.PI*2); C.fill();
+      // Wings
+      C.beginPath(); C.moveTo(-r*.2,-r*1.4); C.lineTo(r*.5,0); C.lineTo(-r*.2,r*1.4); C.closePath(); C.fill();
+      // Tail
+      C.beginPath(); C.moveTo(-r*1.4,-r*.7); C.lineTo(-r*.6,0); C.lineTo(-r*1.4,r*.7); C.closePath(); C.fill();
+      // Engine glow
+      C.fillStyle='rgba(255,150,50,.7)';
+      C.beginPath(); C.ellipse(-r*1.8,0,r*.5,r*.25,0,0,Math.PI*2); C.fill();
+      C.restore();
+      // Skip normal drawing for jet
+      if(u.hp<u.maxHp){
+        const bw=r*2.3,bh=3,bx=x-bw/2,by=y-r-6;
+        C.fillStyle='#1a0a0a'; C.fillRect(bx,by,bw,bh);
+        const pct=u.hp/u.maxHp;
+        C.fillStyle=pct>.5?'#4CAF50':pct>.25?'#FFC107':'#F44336';
+        C.fillRect(bx,by,bw*pct,bh);
+      }
+      return; // skip rest of normal unit drawing
     }
 
     // Jipe passenger count badge
@@ -1923,6 +2091,40 @@ const LARGE_TROOPS = [
       {type:'builder',   dc:4, dr:4},
       {type:'jipe',      dc:6, dr:4},
       {type:'fuzileiro', dc:0, dr:4},
+    ]
+  },
+  // ---- NEW TROOPS ----
+  {
+    id:'lt-allied-blindada', name:'🟢 COLUNA BLINDADA', side:'allied',
+    desc:'12 unidades — 4 Tanques com escolta de fuzileiros e jipe de comando',
+    units:[
+      // 4 tanques em coluna
+      {type:'tank',      dc:0, dr:0},
+      {type:'tank',      dc:0, dr:3},
+      {type:'tank',      dc:0, dr:6},
+      {type:'tank',      dc:0, dr:9},
+      // Fuzileiros flanqueando cada tanque
+      {type:'fuzileiro', dc:1, dr:1}, {type:'fuzileiro', dc:1, dr:2},
+      {type:'fuzileiro', dc:1, dr:4}, {type:'fuzileiro', dc:1, dr:5},
+      {type:'fuzileiro', dc:1, dr:7}, {type:'fuzileiro', dc:1, dr:8},
+      // Jipe de comando + comandante na retaguarda
+      {type:'jipe',      dc:3, dr:4},
+      {type:'commander', dc:2, dr:5},
+    ]
+  },
+  {
+    id:'lt-enemy-blindada', name:'🔴 DIVISÃO ACORAZADA', side:'enemy',
+    desc:'12 unidades — 4 Tanques com escolta e comandante',
+    units:[
+      {type:'tank',      dc:0, dr:0},
+      {type:'tank',      dc:0, dr:3},
+      {type:'tank',      dc:0, dr:6},
+      {type:'tank',      dc:0, dr:9},
+      {type:'fuzileiro', dc:1, dr:1}, {type:'fuzileiro', dc:1, dr:2},
+      {type:'fuzileiro', dc:1, dr:4}, {type:'fuzileiro', dc:1, dr:5},
+      {type:'fuzileiro', dc:1, dr:7}, {type:'fuzileiro', dc:1, dr:8},
+      {type:'jipe',      dc:3, dr:4},
+      {type:'commander', dc:2, dr:5},
     ]
   },
 ];
