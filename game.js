@@ -683,7 +683,8 @@ function mkUnit(side,type,col,row){
     dmg:d.dmg, range:d.range, spd:d.spd, fr:d.fr,
     sz:d.sz||1,
     fireCd:Math.random()*1.5,
-    startDelay: Math.random()*4, // stagger so units don't all rush at once
+    startDelay: (type==='jet') ? 0 : Math.random()*4, // jets launch immediately
+    jetAngle: Math.random()*Math.PI*2, // for jet orbit
     target:null, dead:false, kills:0,
     inTrench:false, flashT:0, angle:side==='allied'?0:Math.PI,
     digTimer:0, buildTimer:0,
@@ -872,21 +873,23 @@ function updateUnits(dt){
       return;
     }
 
-    // ---- Jet: flies along paths, respects terrain, circles target ----
+    // ---- Jet: circles over battlefield, drops bombs — bypasses terrain movement ----
     if(u.type==='jet'){
-      // Jet uses a circling approach: flies toward target but arcs around
-      u.jetAngle = (u.jetAngle||0) + dt*0.8*speed; // orbit angle offset
-      const orbitR = 6;
-      const tx = closest.col + Math.cos(u.jetAngle)*orbitR;
-      const ty = closest.row + Math.sin(u.jetAngle)*orbitR;
-      const dx=tx-u.col, dy=ty-u.row, len=Math.hypot(dx,dy)||1;
-      u.angle=Math.atan2(dy,dx);
-      // Use normal moveUnit so it respects walls
-      moveUnit(u,dx/len,dy/len,dt);
-      // Drop bomb when close to target
-      if(closestD<=u.range){
+      u.jetAngle = (u.jetAngle||0) + dt * 0.9 * speed;
+      // Orbit around the target
+      const orbitR = 7;
+      const tx = closest.col + Math.cos(u.jetAngle) * orbitR;
+      const ty = closest.row + Math.sin(u.jetAngle) * orbitR;
+      const dx = tx - u.col, dy = ty - u.row, len = Math.hypot(dx,dy)||1;
+      u.angle = Math.atan2(dy,dx);
+      // Move directly — jet flies over terrain
+      const s = u.spd * speed;
+      u.col = Math.max(0.5, Math.min(COLS-0.5, u.col + dx/len * s * dt));
+      u.row = Math.max(0.5, Math.min(ROWS-0.5, u.row + dy/len * s * dt));
+      // Drop bomb when close enough to target
+      if(closestD <= u.range){
         if(u.fireCd<=0){
-          u.fireCd=1/u.fr;
+          u.fireCd = 1/u.fr;
           bullets.push({
             x:u.col, y:u.row,
             tx:closest.col, ty:closest.row,
@@ -899,7 +902,6 @@ function updateUnits(dt){
           SOUNDS.jet();
         }
       }
-      doStuckCheck(u,dt);
       return;
     }
 
@@ -1099,7 +1101,7 @@ function isBlocked(nc, nr, u){
 }
 
 function moveUnit(u,dx,dy,dt){
-  if(u.type==='jet') return; // jets handle movement themselves
+  if(u.type==='jet') return; // jets move themselves directly
   const s=u.spd*speed;
   const mx=dx*s*dt, my=dy*s*dt;
   let nx=u.col+mx, ny=u.row+my;
@@ -2159,6 +2161,76 @@ const LARGE_TROOPS = [
       {type:'fuzileiro', dc:1, dr:7}, {type:'fuzileiro', dc:1, dr:8},
       {type:'jipe',      dc:3, dr:4},
       {type:'commander', dc:2, dr:5},
+    ]
+  },
+  // ---- NOVAS TROPAS ----
+  {
+    id:'lt-allied-airforce', name:'🟢 FORÇA AÉREA ALIADA', side:'allied',
+    desc:'8 unidades — 3 Jatos + escolta de observadores e sniper',
+    units:[
+      {type:'jet',      dc:0, dr:0},
+      {type:'jet',      dc:0, dr:4},
+      {type:'jet',      dc:0, dr:8},
+      {type:'observer', dc:3, dr:1},
+      {type:'observer', dc:3, dr:5},
+      {type:'sniper',   dc:3, dr:3},
+      {type:'commander',dc:3, dr:7},
+      {type:'medic',    dc:3, dr:9},
+    ]
+  },
+  {
+    id:'lt-enemy-airforce', name:'🔴 ESQUADRÃO AÉREO INIMIGO', side:'enemy',
+    desc:'8 unidades — 3 Jatos + observadores e comandante',
+    units:[
+      {type:'jet',      dc:0, dr:0},
+      {type:'jet',      dc:0, dr:4},
+      {type:'jet',      dc:0, dr:8},
+      {type:'observer', dc:3, dr:1},
+      {type:'observer', dc:3, dr:5},
+      {type:'sniper',   dc:3, dr:3},
+      {type:'commander',dc:3, dr:7},
+      {type:'medic',    dc:3, dr:9},
+    ]
+  },
+  {
+    id:'lt-allied-trench', name:'🟢 LINHA DE TRINCHEIRAS', side:'allied',
+    desc:'20 unidades — Defesa profunda: escavadores + .50 cal + snipers + médicos',
+    units:[
+      // Escavadores abrindo trincheiras na frente
+      {type:'digger',   dc:0, dr:0}, {type:'digger',   dc:0, dr:3},
+      {type:'digger',   dc:0, dr:6}, {type:'digger',   dc:0, dr:9},
+      // .50 cal nas trincheiras
+      {type:'artillery',dc:1, dr:1}, {type:'artillery',dc:1, dr:4},
+      {type:'artillery',dc:1, dr:7},
+      // Snipers cobrindo
+      {type:'sniper',   dc:2, dr:0}, {type:'sniper',   dc:2, dr:3},
+      {type:'sniper',   dc:2, dr:6}, {type:'sniper',   dc:2, dr:9},
+      // Metralhadores no meio
+      {type:'machine',  dc:2, dr:1}, {type:'machine',  dc:2, dr:5},
+      {type:'machine',  dc:2, dr:8},
+      // Suporte traseiro
+      {type:'medic',    dc:4, dr:2}, {type:'medic',    dc:4, dr:7},
+      {type:'commander',dc:4, dr:4},
+      {type:'observer', dc:4, dr:0}, {type:'observer', dc:4, dr:9},
+      {type:'builder',  dc:3, dr:4},
+    ]
+  },
+  {
+    id:'lt-enemy-trench', name:'🔴 MURALHA DO SUL', side:'enemy',
+    desc:'20 unidades — Linha defensiva pesada com escavadores e .50 cal',
+    units:[
+      {type:'digger',   dc:0, dr:0}, {type:'digger',   dc:0, dr:3},
+      {type:'digger',   dc:0, dr:6}, {type:'digger',   dc:0, dr:9},
+      {type:'artillery',dc:1, dr:1}, {type:'artillery',dc:1, dr:4},
+      {type:'artillery',dc:1, dr:7},
+      {type:'sniper',   dc:2, dr:0}, {type:'sniper',   dc:2, dr:3},
+      {type:'sniper',   dc:2, dr:6}, {type:'sniper',   dc:2, dr:9},
+      {type:'machine',  dc:2, dr:1}, {type:'machine',  dc:2, dr:5},
+      {type:'machine',  dc:2, dr:8},
+      {type:'medic',    dc:4, dr:2}, {type:'medic',    dc:4, dr:7},
+      {type:'commander',dc:4, dr:4},
+      {type:'observer', dc:4, dr:0}, {type:'observer', dc:4, dr:9},
+      {type:'builder',  dc:3, dr:4},
     ]
   },
 ];
