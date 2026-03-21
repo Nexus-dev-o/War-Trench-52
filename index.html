@@ -15,12 +15,37 @@
 
   <div class="setup-box">
     <h3>⚙ CONFIGURAÇÃO DO CAMPO</h3>
+
+    <div class="setup-row">
+      <label>Modo de jogo</label>
+      <select id="game-mode" onchange="gameMode=this.value;const sb=document.getElementById('sandbox-options');const ch=document.getElementById('campaign-hint');if(sb)sb.style.display=this.value==='campaign'?'none':'block';if(ch)ch.style.display=this.value==='campaign'?'block':'none'">
+        <option value="sandbox">🗺 Sandbox (livre)</option>
+        <option value="campaign">⚔ Campanha</option>
+      </select>
+    </div>
+    <div id="campaign-hint" style="display:none;font-size:.7rem;color:#8a7a50;padding:4px 0;">Campanha: comece com 200💰, compre unidades aliadas. Inimigos vêm em ondas crescentes.</div>
+
+    <div class="setup-row">
+      <label>Clima</label>
+      <select id="weather-mode" onchange="weatherMode=this.value">
+        <option value="none">☀ Normal</option>
+        <option value="snow">❄ Neve</option>
+      </select>
+    </div>
+
+    <div class="setup-row">
+      <label>Névoa de guerra</label>
+      <input type="checkbox" id="fog-toggle" onchange="fogOfWar=this.checked" style="width:20px;height:20px;accent-color:var(--acc);">
+      <span style="font-size:.75rem;color:#8a7a50;">Só ver o que suas tropas enxergam</span>
+    </div>
+
     <div class="setup-row">
       <label>Tamanho do mapa</label>
       <input type="range" id="sz-range" min="32" max="96" step="8" value="64" oninput="document.getElementById('sz-val').textContent=this.value+'×'+this.value">
       <span class="setup-val" id="sz-val">64×64</span>
     </div>
 
+    <div id="sandbox-options">
     <h3 style="margin-top:4px;">🗺 MAPA PRÉ-DEFINIDO</h3>
     <div style="display:flex;gap:6px;flex-wrap:wrap;">
       <button class="btn-intro" style="font-size:.75rem;padding:6px 10px;flex:1;" onclick="selectPreset('custom')">✏ Livre</button>
@@ -44,6 +69,7 @@
         <input type="color" class="cf-color" id="cont2-color" value="#7A1C1C">
       </div>
     </div>
+    </div>
   </div>
 
   <div style="display:flex;gap:10px;margin-top:4px;">
@@ -59,6 +85,7 @@
     <button class="tb-btn active" id="btn-build" onclick="setPhase('build')">🔨 CONSTRUIR</button>
     <button class="tb-btn" id="btn-battle" onclick="setPhase('battle')">⚔ BATALHA</button>
     <button class="tb-btn" onclick="togglePause()" id="btn-pause">⏸ PAUSAR</button>
+    <button class="tb-btn" onclick="toggleSlider()" id="btn-slider">🔄 SLIDER OFF</button>
     <div style="display:flex;gap:3px;align-items:center;">
       <span style="font-size:.68rem;color:#6a5a30;">VEL:</span>
       <button class="speed-btn active" onclick="setSpeed(1)" id="sp1">×1</button>
@@ -72,6 +99,8 @@
       <div><span style="font-size:.68rem;color:#6a5a30;" id="cont1-label">ALIADOS</span> <span class="info-val" id="allied-score" style="color:var(--al)">0</span></div>
       <div><span style="font-size:.68rem;color:#6a5a30;" id="cont2-label">INIMIGOS</span> <span class="info-val" id="enemy-score" style="color:var(--en)">0</span></div>
       <div><span style="font-size:.68rem;color:#6a5a30;">TEMPO</span> <span class="info-val" id="time-disp">0s</span></div>
+      <div id="gold-wrap" style="display:none"><span style="font-size:.68rem;color:#C8A84B;">OURO</span> <span class="info-val" id="gold-display" style="color:#FFD700">100💰</span></div>
+      <div id="wave-wrap" style="display:none"><span style="font-size:.68rem;color:#F44336;">ONDA</span> <span class="info-val" id="wave-num" style="color:#FF6B6B">1</span></div>
       <div id="phase-disp" style="font-family:'Oswald',sans-serif;font-size:.85rem;color:var(--acc);">🔨 CONSTRUÇÃO</div>
     </div>
   </div>

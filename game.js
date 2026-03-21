@@ -12,21 +12,62 @@ function noise(dur){
   return buf;
 }
 
-function playShot(){ // Generic rifle crack
+// ===========================
+//  AMBIENT AUDIO
+// ===========================
+let ambientGain=null, windGain=null, ambientStarted=false;
+
+function startAmbient(){
+  if(!AC||ambientStarted) return;
+  ambientStarted=true;
+  // Wind howl — very low volume
+  const wBuf=AC.createBuffer(1,AC.sampleRate*3,AC.sampleRate);
+  const wd=wBuf.getChannelData(0);
+  for(let i=0;i<wd.length;i++) wd[i]=(Math.random()*2-1)*0.4;
+  const wSrc=AC.createBufferSource(); wSrc.buffer=wBuf; wSrc.loop=true;
+  const wFilt=AC.createBiquadFilter(); wFilt.type='lowpass'; wFilt.frequency.value=180;
+  windGain=AC.createGain(); windGain.gain.value=0.04;
+  wSrc.connect(wFilt); wFilt.connect(windGain); windGain.connect(AC.destination);
+  wSrc.start();
+  // Distant rumble (very low freq)
+  const rOsc=AC.createOscillator(); rOsc.type='sine'; rOsc.frequency.value=38;
+  const rGain=AC.createGain(); rGain.gain.value=0.015;
+  rOsc.connect(rGain); rGain.connect(AC.destination); rOsc.start();
+}
+
+function playDistantShot(){
   if(!AC) return;
-  const t = AC.currentTime;
-  // Body crack (noise burst)
-  const src = AC.createBufferSource();
-  src.buffer = noise(0.18);
-  const filt = AC.createBiquadFilter(); filt.type='bandpass'; filt.frequency.value=2200; filt.Q.value=1.5;
-  const g = AC.createGain(); g.gain.setValueAtTime(.28,t); g.gain.exponentialRampToValueAtTime(.001,t+.18);
-  src.connect(filt); filt.connect(g); g.connect(AC.destination);
-  src.start(t); src.stop(t+.18);
-  // Low thud
-  const o = AC.createOscillator(), g2 = AC.createGain();
-  o.type='sine'; o.frequency.setValueAtTime(180,t); o.frequency.exponentialRampToValueAtTime(40,t+.08);
-  g2.gain.setValueAtTime(.18,t); g2.gain.exponentialRampToValueAtTime(.001,t+.1);
-  o.connect(g2); g2.connect(AC.destination); o.start(t); o.stop(t+.1);
+  // Random distant gunfire — very quiet, happens every few seconds
+  const t=AC.currentTime;
+  const src=AC.createBufferSource(); src.buffer=noise(0.08);
+  const filt=AC.createBiquadFilter(); filt.type='bandpass'; filt.frequency.value=600; filt.Q.value=2;
+  const g=AC.createGain(); g.gain.setValueAtTime(0.04,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.12);
+  src.connect(filt); filt.connect(g); g.connect(AC.destination); src.start(t); src.stop(t+0.12);
+}
+
+let distShotTimer=0;
+function updateAmbient(dt){
+  if(!AC||!ambientStarted) return;
+  distShotTimer-=dt;
+  if(distShotTimer<=0&&phase==='battle'){
+    distShotTimer=2+Math.random()*5;
+    playDistantShot();
+  }
+}
+
+function playShot(){
+  if(!AC) return;
+  const t=AC.currentTime;
+  // Sharp transient crack
+  const src=AC.createBufferSource(); src.buffer=noise(0.06);
+  const hp=AC.createBiquadFilter(); hp.type='highpass'; hp.frequency.value=1800;
+  const g=AC.createGain(); g.gain.setValueAtTime(0.35,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.06);
+  src.connect(hp); hp.connect(g); g.connect(AC.destination); src.start(t); src.stop(t+0.06);
+  // Very short body thud (no brum)
+  const src2=AC.createBufferSource(); src2.buffer=noise(0.04);
+  const lp=AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=300;
+  const g2=AC.createGain(); g2.gain.setValueAtTime(0.12,t); g2.gain.exponentialRampToValueAtTime(0.001,t+0.05);
+  src2.connect(lp); lp.connect(g2); g2.connect(AC.destination); src2.start(t); src2.stop(t+0.05);
 }
 
 function playSniper(){ // Long crack + whiz
@@ -89,11 +130,12 @@ function playExplosion(){ // Big boom layered
 
 function playDeath(){
   if(!AC) return;
-  const t = AC.currentTime;
-  const o=AC.createOscillator(),g=AC.createGain();
-  o.type='sawtooth'; o.frequency.setValueAtTime(180,t); o.frequency.exponentialRampToValueAtTime(30,t+.35);
-  g.gain.setValueAtTime(.12,t); g.gain.exponentialRampToValueAtTime(.001,t+.38);
-  o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t+.38);
+  const t=AC.currentTime;
+  // Short impact thud, no oscillator brum
+  const src=AC.createBufferSource(); src.buffer=noise(0.12);
+  const lp=AC.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=250;
+  const g=AC.createGain(); g.gain.setValueAtTime(0.15,t); g.gain.exponentialRampToValueAtTime(0.001,t+0.14);
+  src.connect(lp); lp.connect(g); g.connect(AC.destination); src.start(t); src.stop(t+0.14);
 }
 
 function playDig(){
@@ -201,7 +243,7 @@ const UDEFS = {
 // ===========================
 //  STATE
 // ===========================
-let grid=[], units=[], bullets=[], particles=[], effects=[];
+let grid=[], units=[], bullets=[], particles=[], effects=[], smokeParticles=[];
 let currentTool=null, selectedUnit=null;
 let phase='build', paused=false, speed=1;
 let gameTime=0, alliedScore=0, enemyScore=0, warOver=false;
@@ -209,6 +251,21 @@ let battleStarted=false, uidc=0;
 let lastTS=0;
 let cont1Name='Aliança do Norte', cont2Name='Império do Sul';
 let cont1Color='#2E5F2E', cont2Color='#7A1C1C';
+
+// GAME MODES
+let gameMode='sandbox'; // 'sandbox' | 'campaign'
+let campaignWave=1;
+let playerGold=100;
+const CAMPAIGN_START_GOLD=100;
+const UNIT_COSTS={ soldier:15, sniper:40, machine:25, tank:80, artillery:20, commander:60, medic:30, digger:12, builder:15, fuzileiro:20, observer:25, jipe:50, jet:100 };
+
+// SNOW
+let snowflakes=[];
+let weatherMode='none'; // 'none'|'snow'
+
+// FOG OF WAR
+let fogCanvas=null, fogCtx=null;
+let fogOfWar=false;
 
 // Map shape: array of booleans (which cells are landmass)
 let landmask=[];
@@ -459,6 +516,54 @@ function buildPresetMilbase(){
   }
 }
 
+function buildPresetCampaign(){
+  COLS=56; ROWS=44;
+  landmask=[];
+  for(let r=0;r<ROWS;r++){ landmask[r]=[]; for(let c=0;c<COLS;c++) landmask[r][c]=true; }
+  grid=[];
+  for(let r=0;r<ROWS;r++){ grid[r]=[]; for(let c=0;c<COLS;c++) grid[r][c]=T.CONTINENT_A; }
+
+  // Right side = enemy territory (col 28+)
+  for(let r=0;r<ROWS;r++) for(let c=28;c<COLS;c++) grid[r][c]=T.CONTINENT_E;
+
+  // River dividing at col 24-26
+  for(let r=0;r<ROWS;r++){
+    for(let dc=0;dc<3;dc++){
+      grid[r][24+dc]=T.WATER; landmask[r][24+dc]=false;
+    }
+  }
+  // 2 bridges
+  const b1=Math.floor(ROWS*0.3), b2=Math.floor(ROWS*0.7);
+  for(let dc=0;dc<3;dc++){
+    grid[b1][24+dc]=T.BRIDGE; landmask[b1][24+dc]=true;
+    grid[b2][24+dc]=T.BRIDGE; landmask[b2][24+dc]=true;
+  }
+
+  // Allied base
+  for(let r=16;r<28;r++) for(let c=1;c<4;c++) grid[r][c]=T.BASE_A;
+  // Enemy base (hidden in fog)
+  for(let r=16;r<28;r++) for(let c=52;c<55;c++) grid[r][c]=T.BASE_E;
+
+  // Allied side — pre-built defenses
+  for(let r=6;r<38;r+=2) if(valid(8,r)) grid[r][8]=T.TRENCH;
+  for(let r=7;r<39;r+=2) if(valid(10,r)) grid[r][10]=T.TRENCH;
+  for(let r=6;r<38;r+=2) if(valid(14,r)) grid[r][14]=T.TRENCH;
+  [[18,12],[19,12],[20,12],[22,12],[23,12],[22,18],[23,18],[18,30],[19,30],[20,30]].forEach(([r,cc])=>{ if(valid(cc,r)) grid[r][cc]=T.WALL; });
+  [[8,5],[10,5],[12,5],[30,5],[32,5],[8,18],[30,18]].forEach(([r,cc])=>{ if(valid(cc,r)) grid[r][cc]=T.TREE; });
+
+  // Enemy side — walls, trees, trenches (player discovers when units get close)
+  for(let r=6;r<38;r+=2) if(valid(34,r)) grid[r][34]=T.TRENCH;
+  for(let r=7;r<39;r+=2) if(valid(36,r)) grid[r][36]=T.TRENCH;
+  for(let r=6;r<38;r+=2) if(valid(44,r)) grid[r][44]=T.WALL;
+  [[8,38],[10,38],[30,38],[32,38],[10,50],[30,50]].forEach(([r,cc])=>{ if(valid(cc,r)) grid[r][cc]=T.TREE; });
+}
+
+// Spawn initial enemy wave hidden on campaign start
+function spawnCampaignInitialEnemies(){
+  if(gameMode!=='campaign') return;
+  spawnCampaignWave();
+}
+
 // ===========================
 function genLandmask(){
   landmask=[];
@@ -483,6 +588,7 @@ function initGrid(){
   if(currentPreset==='stalingrad'){ buildPresetStalingrad(); return; }
   if(currentPreset==='pacific'){ buildPresetPacific(); return; }
   if(currentPreset==='milbase'){ buildPresetMilbase(); return; }
+  if(currentPreset==='campaign'){ buildPresetCampaign(); return; }
 
   genLandmask();
   grid=[];
@@ -532,6 +638,8 @@ function setPhase(p){
     battleStarted=true;
     addLog('⚔ BATALHA INICIADA! As tropas avançam!','ev');
     initAudio();
+    setTimeout(startAmbient,500);
+    if(gameMode==='campaign') setTimeout(spawnCampaignInitialEnemies,1000);
   }
 }
 function setSpeed(s){ speed=s; [1,2,3].forEach(n=>document.getElementById('sp'+n).classList.toggle('active',n===s)); }
@@ -559,18 +667,35 @@ function valid(c,r){ return c>=0&&c<COLS&&r>=0&&r<ROWS; }
 //  MOUSE INPUT
 // ===========================
 let rmb=false, panFrom=null, lmbDown=false;
+let sliderMode=false; // toggle: hold mouse to place many units
+let sliderLastCell={col:-1,row:-1}; // avoid placing on same cell twice in one drag
+
+function toggleSlider(){
+  sliderMode=!sliderMode;
+  const btn=document.getElementById('btn-slider');
+  if(btn){ btn.classList.toggle('active',sliderMode); btn.textContent=sliderMode?'🔄 SLIDER ON':'🔄 SLIDER OFF'; }
+  addLog(sliderMode?'🔄 Slider ativado — segure e arraste pra colocar':'🔄 Slider desativado','ev');
+}
 
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('mousedown',e=>{
   initAudio();
   if(e.button===2){ rmb=true; panFrom={x:e.clientX-ox,y:e.clientY-oy}; return; }
-  if(e.button===0){ lmbDown=true; handleClick(e); }
+  if(e.button===0){ lmbDown=true; sliderLastCell={col:-1,row:-1}; handleClick(e); }
 });
 canvas.addEventListener('mousemove',e=>{
   const r=canvas.getBoundingClientRect();
   mouseX=e.clientX-r.left; mouseY=e.clientY-r.top;
   if(rmb&&panFrom){ ox=e.clientX-panFrom.x; oy=e.clientY-panFrom.y; }
   if(lmbDown&&currentTool?.side==='terrain') handleClick(e);
+  if(lmbDown&&sliderMode&&currentTool&&currentTool.side!=='terrain'){
+    const rr=canvas.getBoundingClientRect();
+    const {col,row}=c2g(e.clientX-rr.left,e.clientY-rr.top);
+    if(col!==sliderLastCell.col||row!==sliderLastCell.row){
+      sliderLastCell={col,row};
+      handleClick(e);
+    }
+  }
   updateTip();
 });
 canvas.addEventListener('mouseup',e=>{ if(e.button===2)rmb=false; if(e.button===0)lmbDown=false; });
@@ -635,6 +760,13 @@ function handleClick(e){
   }
   if(unitAt(col,row)) return;
   if(grid[row][col]===T.WATER) return;
+  // Campaign gold check
+  if(gameMode==='campaign'&&side==='allied'&&type!=='milbase'){
+    const cost=UNIT_COSTS[type]||20;
+    if(playerGold<cost){ addLog(`⚠ Sem ouro! ${type} custa ${cost}💰`,'ev'); return; }
+    playerGold-=cost;
+    updateGoldDisplay();
+  }
   // Milbase placed via side tool (allied/enemy)
   if(type==='milbase'){
     const existing = milbases.find(b=>b.side===side);
@@ -1255,6 +1387,7 @@ function updateBullets(dt){
           }
         }
         spawnExpl(b.tx,b.ty);
+        spawnSmoke(b.tx,b.ty);
         playExplosion();
       } else {
         if(b.target&&!b.target.dead) hitUnit(b.target,b.dmg,b.side,b.shooter);
@@ -1290,9 +1423,16 @@ function hitUnit(u, dmg, side, shooter){
   spawnDmg(u.col, u.row, Math.ceil(d));
   if(u.hp <= 0){
     u.dead = true; playDeath();
+    u.flashT = 0.5; // keep visible briefly at death
     if(side==='allied') alliedScore++; else enemyScore++;
     // Credit kill to the shooter unit
     if(shooter && !shooter.dead) shooter.kills++;
+    // Campaign gold reward for killing enemies
+    if(gameMode==='campaign' && side==='allied' && u.side==='enemy'){
+      playerGold+=5;
+      updateGoldDisplay();
+      effects.push({x:u.col, y:u.row, vy:-2, life:0.7, text:'+5💰', alpha:1, color:'#FFD700'});
+    }
     document.getElementById('allied-score').textContent = alliedScore;
     document.getElementById('enemy-score').textContent = enemyScore;
     addLog(`💀 ${UDEFS[u.type].name} ${u.side==='allied'?'aliado':'inimigo'} morto`, u.side==='allied'?'en':'al');
@@ -1326,7 +1466,9 @@ function spawnDeathFX(x,y,side){
   }
 }
 function spawnDmg(x,y,d){
-  effects.push({x,y,vy:-1.8,life:.9,text:'-'+d,alpha:1});
+  // Don't show tiny damage numbers (< 3) to reduce clutter
+  if(d<3) return;
+  effects.push({x,y,vy:-1.4,life:0.6,text:d,alpha:1,color:'#FFD700'});
 }
 // ===========================
 //  MILITARY BASE SPAWNER
@@ -1474,6 +1616,110 @@ function drawMilbaseOverlays(){
     C.fillStyle='rgba(200,168,75,.9)';
     C.textAlign='center';
     C.fillText('BASE MILITAR', x+W*ti/2, y-6*zoom);
+  });
+}
+
+// ===========================
+//  SNOW & WEATHER
+// ===========================
+function initSnow(){
+  snowflakes=[];
+  for(let i=0;i<180;i++){
+    snowflakes.push({
+      x:Math.random()*canvas.width,
+      y:Math.random()*canvas.height,
+      size:Math.random()*1.8+0.4,
+      speed:0.25+Math.random()*0.6,
+      wind:(Math.random()-.5)*0.3,
+      alpha:0.5+Math.random()*0.4,
+      wobble:Math.random()*Math.PI*2,
+      wobbleSpd:0.5+Math.random()*1.5,
+    });
+  }
+}
+
+function updateSnow(dt){
+  if(weatherMode!=='snow') return;
+  const spd=speed*60*dt;
+  snowflakes.forEach(s=>{
+    s.wobble+=s.wobbleSpd*dt;
+    s.y+=s.speed*spd;
+    s.x+=s.wind*spd + Math.sin(s.wobble)*0.15;
+    if(s.y>canvas.height+4){ s.y=-4; s.x=Math.random()*canvas.width; }
+    if(s.x>canvas.width+4) s.x=-4;
+    if(s.x<-4) s.x=canvas.width+4;
+  });
+}
+
+function drawSnow(){
+  if(weatherMode!=='snow') return;
+  C.save();
+  // Snow accumulation tint on ground tiles
+  const ti=TILE*zoom;
+  const sc=Math.max(0,Math.floor(-ox/ti)), ec=Math.min(COLS,Math.ceil((canvas.width-ox)/ti));
+  const sr=Math.max(0,Math.floor(-oy/ti)), er=Math.min(ROWS,Math.ceil((canvas.height-oy)/ti));
+  C.fillStyle='rgba(210,225,245,0.18)';
+  for(let r=sr;r<er;r++) for(let cc=sc;cc<ec;cc++){
+    const t=grid[r]?.[cc];
+    if(t===T.GRASS||t===T.CONTINENT_A||t===T.CONTINENT_E||t===T.MILBASE||t===T.TRENCH){
+      C.fillRect(cc*ti+ox, r*ti+oy, ti, ti);
+    }
+  }
+  // Snowflakes — draw as small circles with soft glow
+  snowflakes.forEach(s=>{
+    C.globalAlpha=s.alpha;
+    C.fillStyle='rgba(230,240,255,1)';
+    C.beginPath(); C.arc(s.x,s.y,s.size,0,Math.PI*2); C.fill();
+    // Soft halo
+    if(s.size>1.2){
+      C.globalAlpha=s.alpha*0.3;
+      C.beginPath(); C.arc(s.x,s.y,s.size*2.2,0,Math.PI*2); C.fill();
+    }
+  });
+  C.globalAlpha=1;
+  C.restore();
+}
+
+// ===========================
+//  SMOKE PARTICLES
+// ===========================
+function spawnSmoke(x,y){
+  for(let i=0;i<6;i++){
+    smokeParticles.push({
+      x, y,
+      vx:(Math.random()-.5)*0.6,
+      vy:-(0.3+Math.random()*0.5),
+      life:2+Math.random()*2,
+      maxLife:3,
+      size:0.8+Math.random()*1.2,
+      alpha:0.55,
+    });
+  }
+}
+
+function updateSmoke(dt){
+  smokeParticles.forEach(s=>{
+    s.x+=s.vx*speed*dt;
+    s.y+=s.vy*speed*dt;
+    s.life-=dt*speed;
+    s.vx*=0.97;
+    s.vy*=0.98;
+    s.alpha=Math.max(0,s.life/s.maxLife*0.5);
+    s.size+=0.02*speed;
+  });
+  smokeParticles=smokeParticles.filter(s=>s.life>0);
+}
+
+function drawSmoke(){
+  const ti=TILE*zoom;
+  smokeParticles.forEach(s=>{
+    const x=s.x*ti+ox, y=s.y*ti+oy;
+    const r=s.size*ti*0.5;
+    const grad=C.createRadialGradient(x,y,0,x,y,r);
+    grad.addColorStop(0,`rgba(160,155,145,${s.alpha})`);
+    grad.addColorStop(1,`rgba(120,115,105,0)`);
+    C.fillStyle=grad;
+    C.beginPath(); C.arc(x,y,r,0,Math.PI*2); C.fill();
   });
 }
 
@@ -1653,6 +1899,12 @@ function drawUnits(){
   const ti=TILE*zoom;
   units.forEach(u=>{
     if(u.dead) return;
+    // Fog of war: hide enemy units unless visible or recently hit
+    if(fogOfWar && u.side==='enemy'){
+      const visible=isVisible(u.col,u.row);
+      const recentlyHit=u.flashT>0; // flashing = was just shot, reveal briefly
+      if(!visible && !recentlyHit) return;
+    }
     const x=u.col*ti+ox, y=u.row*ti+oy;
     const r=ti*.44*u.sz;
 
@@ -1772,10 +2024,15 @@ function drawParticles(){
   });
   effects.forEach(e=>{
     const x=e.x*ti+ox, y=e.y*ti+oy;
-    C.fillStyle=`rgba(255,80,80,${e.alpha})`;
-    C.font=`bold ${Math.max(8,11*zoom)}px Oswald`;
-    C.textAlign='center';
+    C.save();
+    C.globalAlpha=e.alpha;
+    C.font=`bold ${Math.max(7,9*zoom)}px Oswald`;
+    C.textAlign='center'; C.textBaseline='middle';
+    C.strokeStyle='rgba(0,0,0,0.6)'; C.lineWidth=2;
+    C.strokeText(e.text,x,y);
+    C.fillStyle=e.color||'#FFD700';
     C.fillText(e.text,x,y);
+    C.restore();
   });
 }
 
@@ -1817,6 +2074,50 @@ function drawMinimap(){
   C.fillStyle='rgba(200,168,75,.7)'; C.fillText('MAPA',mx+3,my+9);
 }
 
+// ===========================
+//  FOG OF WAR
+// ===========================
+// Returns true if position is visible to allied units
+function isVisible(col, row){
+  if(!fogOfWar) return true;
+  return units.some(u=>{
+    if(u.side!=='allied'||u.dead) return false;
+    const vR = u.type==='observer'?30 : u.type==='sniper'?16 : 9;
+    return Math.hypot(u.col-col, u.row-row) <= vR;
+  });
+}
+
+function drawFog(){
+  if(!fogOfWar) return;
+  const ti=TILE*zoom;
+  const W=canvas.width, H=canvas.height;
+  const off=document.createElement('canvas');
+  off.width=W; off.height=H;
+  const oc=off.getContext('2d');
+  oc.fillStyle='rgba(0,0,0,0.86)';
+  oc.fillRect(0,0,W,H);
+  oc.globalCompositeOperation='destination-out';
+
+  // Always reveal left quarter of map (allied spawn zone)
+  const revealW = Math.floor(COLS*0.25)*ti;
+  oc.fillStyle='rgba(0,0,0,1)';
+  oc.fillRect(ox, oy, revealW, ROWS*ti);
+
+  // Reveal vision circles around allied units
+  units.filter(u=>u.side==='allied'&&!u.dead).forEach(u=>{
+    const x=u.col*ti+ox, y=u.row*ti+oy;
+    const vR=(u.type==='observer'?30:u.type==='sniper'?16:9)*ti;
+    const grad=oc.createRadialGradient(x,y,vR*0.3,x,y,vR);
+    grad.addColorStop(0,'rgba(0,0,0,1)');
+    grad.addColorStop(0.65,'rgba(0,0,0,0.9)');
+    grad.addColorStop(1,'rgba(0,0,0,0)');
+    oc.fillStyle=grad;
+    oc.beginPath(); oc.arc(x,y,vR,0,Math.PI*2); oc.fill();
+  });
+  oc.globalCompositeOperation='source-over';
+  C.drawImage(off,0,0);
+}
+
 function render(){
   C.clearRect(0,0,canvas.width,canvas.height);
   C.fillStyle='#110d06'; C.fillRect(0,0,canvas.width,canvas.height);
@@ -1824,6 +2125,9 @@ function render(){
   drawBullets();
   drawParticles();
   drawUnits();
+  drawSmoke();
+  drawFog();
+  drawSnow();
   drawHoverCell();
   drawSquadPreview();
   drawMilbaseOverlays();
@@ -1843,6 +2147,10 @@ function gameLoop(ts){
     updateUnits(dt);
     updateBullets(dt);
     updateMilbases(dt);
+    updateCampaignWaves(dt);
+    updateAmbient(dt);
+    updateSnow(dt);
+    updateSmoke(dt);
     updateParticles(dt);
     if(selectedUnit&&!selectedUnit.dead) showDetail(selectedUnit);
     if(phase==='battle'&&gameTime>8) checkWin();
@@ -1851,7 +2159,123 @@ function gameLoop(ts){
   requestAnimationFrame(gameLoop);
 }
 
+// ===========================
+//  CAMPAIGN WAVE SPAWNER
+// ===========================
+let campaignWaveTimer=0;
+// Campaign waves — enemy units pre-positioned on right side of map (hidden by fog)
+const CAMPAIGN_WAVES=[
+  // Onda 1 — 4 soldados fáceis
+  [{type:'soldier',col:50,row:18},{type:'soldier',col:50,row:22},{type:'soldier',col:50,row:26},{type:'soldier',col:48,row:20}],
+  // Onda 2 — mais soldados + metralhador
+  [{type:'soldier',col:50,row:16},{type:'soldier',col:50,row:20},{type:'soldier',col:50,row:24},{type:'soldier',col:50,row:28},{type:'machine',col:48,row:22}],
+  // Onda 3 — sniper + soldados + médico
+  [{type:'sniper',col:52,row:18},{type:'soldier',col:49,row:16},{type:'soldier',col:49,row:20},{type:'soldier',col:49,row:24},{type:'soldier',col:49,row:28},{type:'medic',col:51,row:22}],
+  // Onda 4 — tanque + suporte
+  [{type:'tank',col:48,row:22},{type:'soldier',col:50,row:16},{type:'soldier',col:50,row:28},{type:'machine',col:50,row:18},{type:'machine',col:50,row:26},{type:'commander',col:52,row:22}],
+  // Onda 5 — dois tanques + fuzileiros
+  [{type:'tank',col:48,row:18},{type:'tank',col:48,row:28},{type:'fuzileiro',col:50,row:16},{type:'fuzileiro',col:50,row:22},{type:'fuzileiro',col:50,row:28},{type:'sniper',col:52,row:20},{type:'medic',col:52,row:26}],
+  // Onda 6 — força pesada com comandante
+  [{type:'tank',col:46,row:16},{type:'tank',col:46,row:22},{type:'tank',col:46,row:30},{type:'soldier',col:49,row:14},{type:'soldier',col:49,row:18},{type:'soldier',col:49,row:26},{type:'soldier',col:49,row:32},{type:'commander',col:52,row:22},{type:'medic',col:52,row:18},{type:'medic',col:52,row:28}],
+  // Onda 7 — exército completo
+  [{type:'jet',col:50,row:22},{type:'tank',col:46,row:14},{type:'tank',col:46,row:22},{type:'tank',col:46,row:32},{type:'fuzileiro',col:48,row:16},{type:'fuzileiro',col:48,row:20},{type:'fuzileiro',col:48,row:26},{type:'fuzileiro',col:48,row:30},{type:'machine',col:50,row:14},{type:'machine',col:50,row:32},{type:'sniper',col:52,row:18},{type:'commander',col:52,row:22},{type:'medic',col:52,row:28}],
+  // Onda 8 — BOSS — força máxima
+  [{type:'jet',col:50,row:18},{type:'jet',col:50,row:28},{type:'tank',col:44,row:14},{type:'tank',col:44,row:22},{type:'tank',col:44,row:30},{type:'fuzileiro',col:47,row:16},{type:'fuzileiro',col:47,row:22},{type:'fuzileiro',col:47,row:28},{type:'machine',col:49,row:14},{type:'machine',col:49,row:20},{type:'machine',col:49,row:28},{type:'sniper',col:52,row:14},{type:'sniper',col:52,row:30},{type:'commander',col:52,row:20},{type:'commander',col:52,row:26},{type:'medic',col:52,row:22}],
+];
+
+function updateCampaignWaves(dt){
+  if(gameMode!=='campaign'||phase!=='battle') return;
+  if(!battleStarted) return;
+  // Only check after first wave has been spawned
+  if(campaignWave<=1) return;
+  const enemiesLeft=units.filter(u=>u.side==='enemy'&&!u.dead).length;
+  if(enemiesLeft===0){
+    campaignWaveTimer-=dt*speed;
+    // Show countdown in log once
+    if(Math.ceil(campaignWaveTimer)===8) addLog(`⏳ Próxima onda em ${Math.ceil(campaignWaveTimer)}s...`,'ev');
+    if(campaignWaveTimer<=0){
+      campaignWaveTimer=10;
+      spawnCampaignWave();
+    }
+  } else {
+    // Reset timer while enemies are alive
+    campaignWaveTimer=10;
+  }
+}
+
+function generateInfiniteWave(waveNum){
+  // After wave 8, generate increasingly hard waves
+  const base=Math.min(waveNum-8, 20); // scale 0-20
+  const wave=[];
+  const baseCol=COLS-4;
+  const rows=[14,18,22,26,30,34,38].filter(r=>r<ROWS-2);
+  // More soldiers each wave
+  const numSoldiers=Math.min(4+Math.floor(base/2), 10);
+  for(let i=0;i<numSoldiers;i++) wave.push({type:'soldier',col:baseCol,row:rows[i%rows.length]});
+  // Tanks scale
+  const numTanks=Math.floor(base/3);
+  for(let i=0;i<numTanks;i++) wave.push({type:'tank',col:baseCol-2,row:rows[(i*2)%rows.length]});
+  // Jets above wave 12
+  if(waveNum>=12) wave.push({type:'jet',col:baseCol,row:rows[2]});
+  if(waveNum>=16) wave.push({type:'jet',col:baseCol,row:rows[4]});
+  // Always some support
+  wave.push({type:'commander',col:baseCol+1,row:rows[Math.floor(rows.length/2)]});
+  wave.push({type:'medic',col:baseCol+1,row:rows[Math.floor(rows.length/2)+1]||rows[0]});
+  if(base>4) wave.push({type:'sniper',col:baseCol+2,row:rows[0]});
+  if(base>6) wave.push({type:'machine',col:baseCol,row:rows[rows.length-1]});
+  return wave;
+}
+
+function spawnCampaignWave(){
+  const wNum=campaignWave;
+  const wave = wNum<=CAMPAIGN_WAVES.length ? CAMPAIGN_WAVES[wNum-1] : generateInfiniteWave(wNum);
+  let placed=0;
+  wave.forEach(u=>{
+    const col=Math.min(u.col||COLS-4, COLS-2);
+    const row=Math.min(Math.max(1, u.row||Math.floor(ROWS/2)), ROWS-2);
+    for(let dc=0;dc<=4;dc++){
+      const tc=col-dc;
+      if(valid(tc,row)&&grid[row][tc]!==T.WATER&&!unitAt(tc,row)){
+        const unit=mkUnit('enemy',u.type,tc,row);
+        if(unit){ units.push(unit); placed++; break; }
+      }
+    }
+  });
+  campaignWave++;
+  addLog(`⚔ ONDA ${wNum} — ${placed} inimigos avançando!${wNum>8?' [INFINITA]':''}`,'en');
+  if(wNum>1){
+    playerGold+=20;
+    updateGoldDisplay();
+    addLog(`💰 +20 ouro! Total: ${playerGold}💰`,'ev');
+  }
+  updateWaveBanner(wNum);
+}
+
+function updateGoldDisplay(){
+  const el=document.getElementById('gold-display');
+  if(el) el.textContent=playerGold+'💰';
+}
+
+function updateWaveBanner(n){
+  const wn=document.getElementById('wave-num');
+  if(wn) wn.textContent=n;
+  let el=document.getElementById('wave-banner');
+  if(!el){
+    el=document.createElement('div');
+    el.id='wave-banner';
+    el.style.cssText='position:fixed;top:60px;left:50%;transform:translateX(-50%);background:rgba(10,6,2,.93);border:2px solid #C8A84B;padding:8px 28px;font-family:Oswald,sans-serif;font-size:1.3rem;color:#C8A84B;letter-spacing:.15em;z-index:400;pointer-events:none;transition:opacity .6s;';
+    document.body.appendChild(el);
+  }
+  el.textContent = n>8 ? `⚔ ONDA ${n} — INFINITA` : `⚔ ONDA ${n}`;
+  el.style.opacity='1';
+  setTimeout(()=>{ if(el) el.style.opacity='0'; },3500);
+}
+
 function checkWin(){
+  // Campaign mode: never auto-win — waves are infinite, lose only if allied base falls
+  if(gameMode==='campaign') return;
+  // Sandbox: require at least 10s of battle before checking
+  if(gameTime<10) return;
   const al=units.filter(u=>u.side==='allied'&&!u.dead).length;
   const en=units.filter(u=>u.side==='enemy'&&!u.dead).length;
   if(al===0&&en>0) endWar('enemy');
@@ -1964,6 +2388,10 @@ function newWar(){
   document.querySelectorAll('.squad-card').forEach(c=>c.classList.remove('sq-selected'));
   buildSquadUI();
   updateSquadLabels();
+  smokeParticles=[];
+  if(weatherMode==='snow') initSnow();
+  campaignWave=1; campaignWaveTimer=8;
+  if(gameMode==='campaign'){ playerGold=CAMPAIGN_START_GOLD; updateGoldDisplay(); }
   addLog('🔄 Nova guerra iniciada! Posicione suas tropas.','ev');
 }
 
@@ -2009,6 +2437,16 @@ function startGame(){
     COLS=32; ROWS=32;
   }
 
+  gameMode=document.getElementById("game-mode")?.value||"sandbox";
+  weatherMode=document.getElementById("weather-mode")?.value||"none";
+  fogOfWar=document.getElementById("fog-toggle")?.checked||false;
+  const goldWrap=document.getElementById("gold-wrap");
+  if(goldWrap) goldWrap.style.display=gameMode==="campaign"?"block":"none";
+  const waveWrap=document.getElementById("wave-wrap"); if(waveWrap) waveWrap.style.display=gameMode==="campaign"?"block":"none";
+  if(gameMode==="campaign"){
+    playerGold=CAMPAIGN_START_GOLD; campaignWave=1; campaignWaveTimer=8;
+    currentPreset="campaign"; COLS=48; ROWS=40;
+  }
   showMain();
   resizeCanvas();
   initGrid();
@@ -2018,6 +2456,8 @@ function startGame(){
   buildSquadUI();
   updateSquadLabels();
 
+  if(weatherMode==='snow') initSnow();
+  updateGoldDisplay();
   const presetLabel = currentPreset==='normandy'?'🏖 Normandia':currentPreset==='stalingrad'?'🏙 Stalingrado':currentPreset==='pacific'?'🌊 Pacífico':'✏ Livre';
   addLog(`🗺 Mapa: ${presetLabel} — ${cont1Name} vs ${cont2Name} (${COLS}×${ROWS})`,'ev');
   addLog('🔨 Posicione tropas e construa trincheiras antes de iniciar a batalha.','ev');
@@ -2369,13 +2809,23 @@ function getSquadBounds(sq){
 function placeSquad(anchorCol, anchorRow){
   if(!activeSquad) return;
   const sq = activeSquad;
+  // Campaign: check total cost first
+  if(gameMode==='campaign' && sq.side==='allied'){
+    const totalCost = sq.units.reduce((s,u)=>s+(UNIT_COSTS[u.type]||15),0);
+    if(playerGold < totalCost){
+      addLog(`⚠ Sem ouro! Esquadrão custa ${totalCost}💰 (você tem ${playerGold}💰)`,'ev');
+      return;
+    }
+    playerGold -= totalCost;
+    updateGoldDisplay();
+  }
   let placed = 0;
   sq.units.forEach(u=>{
-    const c=anchorCol+u.dc, r=anchorRow+u.dr;
-    if(!valid(c,r)) return;
-    if(grid[r][c]===T.WATER) return;
-    if(unitAt(c,r)) return;
-    const unit=mkUnit(sq.side,u.type,c,r);
+    const col=anchorCol+u.dc, row=anchorRow+u.dr;
+    if(!valid(col,row)) return;
+    if(grid[row][col]===T.WATER) return;
+    if(unitAt(col,row)) return;
+    const unit=mkUnit(sq.side,u.type,col,row);
     if(unit){ units.push(unit); placed++; }
   });
   if(placed>0){
